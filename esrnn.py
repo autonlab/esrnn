@@ -2,6 +2,7 @@ import os
 import time
 
 import numpy as np
+import pandas as pd
 
 import torch
 import torch.nn as nn
@@ -39,7 +40,7 @@ class ESRNN(object):
 
         # ts_object list panel
         batches = []
-        for i, idx in enumerate(self.X['unique_id'].unique()):
+        for i, idx in enumerate(self.unique_idxs):
             # Fast filter X and y by id.
             top_row = np.asscalar(self.X['unique_id'].searchsorted(idx, 'left'))
             bottom_row = np.asscalar(self.X['unique_id'].searchsorted(idx, 'right'))
@@ -50,17 +51,13 @@ class ESRNN(object):
             else:
                 categories=None
             
-            ts_object = tsObject(mc=self.mc, y=y, ts=ts, categories=[categories], idxs=[i])
+            ts_object = tsObject(mc=self.mc, y=y, ts=ts, categories=[categories], idxs=[i]) # TODO should be list
             batches.append(ts_object)
 
         return batches
 
     def train(self, batches, random_seed):
         print(10*'='+' Training ESRNN ' + 10*'=')
-        
-        # Random Seeds
-        torch.manual_seed(random_seed)
-        np.random.seed(random_seed)
 
         # Optimizers
         # TODO scheduler
@@ -69,8 +66,8 @@ class ESRNN(object):
                                     betas=(0.9, 0.999), eps=self.mc.gradient_eps)
 
         rnn_optimizer = optim.Adam(params=self.esrnn.rnn.parameters(),
-                                lr=self.mc.learning_rate,
-                                betas=(0.9, 0.999), eps=self.mc.gradient_eps)
+                                   lr=self.mc.learning_rate,
+                                   betas=(0.9, 0.999), eps=self.mc.gradient_eps)
         
         # Loss Functions
         smyl_loss = SmylLoss(tau=self.mc.tau, level_variability_penalty=self.mc.level_variability_penalty)
@@ -104,6 +101,10 @@ class ESRNN(object):
         print('Train finished!')
     
     def fit(self, X, y, random_seed=1):
+        
+        # Random Seeds
+        torch.manual_seed(random_seed)
+        np.random.seed(random_seed)
 
         assert len(X)==len(y)
 
@@ -111,6 +112,7 @@ class ESRNN(object):
         X.loc[:, 'y'] = y
         X = X.sort_values(by=['unique_id', 'ts']).reset_index(drop=True)
         self.X = X
+        self.unique_idxs = self.X["unique_id"].unique()
 
         # Exogenous variables
         if 'x' in X.columns:
@@ -121,55 +123,51 @@ class ESRNN(object):
             self.mc.exogenous_size = 0
 
         # Create batches
-        batches=self.panel_to_batches()
+        self.batches = self.panel_to_batches()
 
         # Initialize model
         self.mc.num_series = X['unique_id'].nunique()
         self.esrnn = _ESRNN(self.mc)
 
         # Train model
-        self.train(batches, random_seed)
+        self.train(self.batches, random_seed)
 
-    def predict(self, ts_object):
-        # evaluation mode
-        self.eval()
+    def predict(self, X=None):
+        """
+            Predictions for all stored time series
+        Returns:
+            Y_hat_panel : array-like (n_samples, 1).
+                Predicted values for models in Family for ids in Panel.
+            ds: Corresponding list of date stamps
+            unique_id: Corresponding list of unique_id
+        """
+        # TODO: receive X
 
-        # parse mc
-        batch_size = self.mc.batch_size
-        input_size = self.mc.input_size
-        output_size = self.mc.output_size
-        exogenous_size = self.mc.exogenous_size
+        # Predictions for panel.
+        Y_hat_panel = pd.DataFrame(columns=["unique_id", "ts", "y_hat"])
 
-        # parse ts_object
-        y_ts = ts_object.y
-        idxs = ts_object.idxs
-        n_series, n_time = y_ts.shape
+        for i, idx in enumerate(self.unique_idxs):
+            # Corresponding train ts_object
+            ts_object = self.batches[i]
 
-        # Initialize windows, levels and seasonalities
-        levels, seasonalities = self.esrnn.es(ts_object)
+            # Asserts
+            assert ts_object.idxs[0] == i
 
-        x_start = n_time - input_size
-        x_end = n_time
+            # Declare y_hat_id placeholder
+            Y_hat_id = pd.DataFrame(np.zeros(shape=(self.mc.output_size, 1)), columns=["y_hat"])
 
-        # Deseasonalization and normalization
-        x = y_ts[:, x_start:x_end] / seasonalities[:, x_start:x_end]
-        x = x / levels[:, x_end-1]
-        x = torch.log(x)
+            # Prediction
+            y_hat = self.esrnn.predict(ts_object)
+            y_hat = y_hat.squeeze()
+            Y_hat_id.iloc[:, 0] = y_hat
 
-        # Concatenate categories
-        categories = ts_object.categories_vect
-        x = torch.cat((x, categories), 1)
-        windows_x = torch.unsqueeze(x, 0)
+            # Serie prediction
+            Y_hat_id["unique_id"] = idx
+            ts = date_range = pd.date_range(start=ts_object.last_ts, periods=self.mc.output_size+1, freq=self.mc.frequency)
+            Y_hat_id["ts"] = ts[1:]
+            Y_hat_panel = Y_hat_panel.append(Y_hat_id, sort=False).reset_index(drop=True)
 
-        windows_y_hat = self.esrnn.rnn(windows_x)
-        y_hat = torch.squeeze(windows_y_hat, 0)
-
-        # Return seasons and levels
-        y_hat = torch.exp(y_hat)
-        y_hat = y_hat * levels[:, n_time-1]
-        y_hat = y_hat * seasonalities[:, n_time:(n_time+output_size)]
-        y_hat = y_hat.data.numpy()
-        return y_hat
+        return Y_hat_panel
   
     def get_dir_name(self, root_dir=None):
         if not root_dir:

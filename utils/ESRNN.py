@@ -164,3 +164,45 @@ class _ESRNN(nn.Module):
 
         windows_y_hat = self.rnn(windows_x)
         return windows_y, windows_y_hat, levels
+
+    def predict(self, ts_object):
+        # parse mc
+        batch_size = self.mc.batch_size
+        input_size = self.mc.input_size
+        output_size = self.mc.output_size
+        exogenous_size = self.mc.exogenous_size
+
+        # parse ts_object
+        y_ts = ts_object.y
+        idxs = ts_object.idxs
+        n_series, n_time = y_ts.shape
+
+        # evaluation mode
+        self.eval()
+
+        # Initialize windows, levels and seasonalities
+        levels, seasonalities = self.es(ts_object)
+
+        x_start = n_time - input_size
+        x_end = n_time
+
+        # Deseasonalization and normalization
+        x = y_ts[:, x_start:x_end] / seasonalities[:, x_start:x_end]
+        x = x / levels[:, x_end-1]
+        x = torch.log(x)
+
+        # Concatenate categories
+        if exogenous_size>0:
+            x = torch.cat((x, ts_object.categories), 1)
+
+        windows_x = torch.unsqueeze(x, 0)
+
+        windows_y_hat = self.rnn(windows_x)
+        y_hat = torch.squeeze(windows_y_hat, 0)
+
+        # Return seasons and levels
+        y_hat = torch.exp(y_hat)
+        y_hat = y_hat * levels[:, n_time-1]
+        y_hat = y_hat * seasonalities[:, n_time:(n_time+output_size)]
+        y_hat = y_hat.data.numpy()
+        return y_hat
