@@ -1,11 +1,8 @@
 # d3m_esrnn
 
+Hybrid ES-RNN models for time series forecasting
+
 Python implementation of ESRNN model (described in https://eng.uber.com/m4-forecasting-competition/ ).
 
-# Conda environment
-```console
-bash setup.sh
-```
-
 # Run example
-A full example available in example.ipynb
+A full example available in [example.ipynb](example.ipynb)

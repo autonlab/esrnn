@@ -1,13 +1,16 @@
+import logging
 import os
 import yaml
 import time
 import numpy as np
 import dynet_config
+
 dynet_config.set(random_seed=120652)
 import dynet as dy
 import pandas as pd
 
 from pathlib import Path
+
 
 # TODO: validation/test periods
 # TODO: when we filter ids length wont match (zeros at the end)
@@ -22,15 +25,16 @@ def dy_arrInput(np_arr):
     arr_ex.set(np_arr)
     return arr_ex
 
+
 # ORAX: M4 CATEGORIES ERASED
 class M4TS():
     def __init__(self, mc, y, ds, id):
         self.id = id
         n = len(y)
-        if mc.lback>0:
+        if mc.lback > 0:
             if (n - mc.lback * mc.output_size_i > 0):
                 first = n - mc.lback * mc.output_size_i
-                pastLast = n - (mc.lback-1) * mc.output_size_i
+                pastLast = n - (mc.lback - 1) * mc.output_size_i
                 self.y = y[:first]
                 self.y_test = y[first:pastLast]
         else:
@@ -45,11 +49,12 @@ class M4TS():
         # self.categories_vect = np.zeros((6,1))
         # self.categories_vect[category_dict[category]] = 1
 
+
 class ModelConfig(object):
     def __init__(self, config_file, root_dir, copy=1):
         with open(config_file, 'r') as stream:
             config = yaml.safe_load(stream)
-        
+
         # Train Parameters
         self.dataset_name = config['dataset_name']
         self.max_epochs = config['train_parameters']['max_epochs']
@@ -62,10 +67,10 @@ class ModelConfig(object):
         self.gradient_clipping_threshold = config['train_parameters']['gradient_clipping_threshold']
         self.noise_std = config['train_parameters']['noise_std']
         self.numeric_threshold = float(config['train_parameters']['numeric_threshold'])
-        
+
         self.level_variability_penalty = config['train_parameters']['level_variability_penalty']
         self.c_state_penalty = config['train_parameters']['c_state_penalty']
-        
+
         self.percentile = config['train_parameters']['percentile']
         self.training_percentile = config['train_parameters']['training_percentile']
         self.tau = self.percentile / 100.
@@ -99,11 +104,12 @@ class ModelConfig(object):
             self.max_series_length = (20 * self.seasonality) + self.min_series_length
 
         self.max_num_series = config['data_parameters']['max_num_series']
-        #self.data_dir = config['data_parameters']['data_dir'] # ORAX
+        # self.data_dir = config['data_parameters']['data_dir'] # ORAX
         self.output_dir = config['data_parameters']['output_dir']
 
         self.root_dir = root_dir
         self.copy = copy
+
 
 class ES(object):
     def __init__(self, mc):
@@ -121,7 +127,7 @@ class ES(object):
 
         init_seas = np.ones((self.max_num_series, self.seasonality)) * 0.5
         self.init_seas = pc.add_lookup_parameters((self.max_num_series, self.seasonality),
-                                                    init=init_seas)
+                                                  init=init_seas)
         self.pc = pc
 
     def declare_expr(self, ts_object):
@@ -129,7 +135,7 @@ class ES(object):
         self.lev_sms_ex = dy.logistic(dy.lookup(self.lev_sms, ts_object.id))
         self.seas_sms_ex = dy.logistic(dy.lookup(self.seas_sms, ts_object.id))
         self.init_seas_ex = dy.exp(dy.lookup(self.init_seas, ts_object.id))
-    
+
     def compute_levels_seasons(self, ts_object):
         lev_sms_ex = self.lev_sms_ex
         seas_sms_ex = self.seas_sms_ex
@@ -148,10 +154,10 @@ class ES(object):
         # Calculate level and seasonalities for current time steps
         for i in range(1, len(ts_object.y)):
             newlev_ex = ts_object.y[i] * dy.cdiv(lev_sms_ex, seasonalities[i]) + \
-                        (1-lev_sms_ex) * levels[i-1]
+                        (1 - lev_sms_ex) * levels[i - 1]
             newseason_ex = ts_object.y[i] * dy.cdiv(seas_sms_ex, newlev_ex) + \
-                        (1-seas_sms_ex) * seasonalities[i]
-            diff_ex = dy.log(newlev_ex)-dy.log(levels[i-1])
+                           (1 - seas_sms_ex) * seasonalities[i]
+            diff_ex = dy.log(newlev_ex) - dy.log(levels[i - 1])
             levels.append(newlev_ex)
             log_diff_of_levels.append(diff_ex)
             seasonalities.append(newseason_ex)
@@ -168,33 +174,34 @@ class ES(object):
     def __call__(self):
         pass
 
+
 class LSTM(object):
     def __init__(self, mc):
         self.mc = mc
         input_size = mc.input_size
-        state_hsize= mc.state_hsize 
+        state_hsize = mc.state_hsize
         output_size = mc.output_size
         dilations = mc.dilations
         exogenous_size = mc.exogenous_size
         self.layers = len(mc.dilations)
-        
+
         self.pc = dy.ParameterCollection()
-        
+
         self.rnn_builders = []
-        builder = dy.VanillaLSTMBuilder(1, input_size+exogenous_size, state_hsize, self.pc) # SimpleRNNBuilder
+        builder = dy.VanillaLSTMBuilder(1, input_size + exogenous_size, state_hsize, self.pc)  # SimpleRNNBuilder
         self.rnn_builders.append(builder)
 
-        if self.layers>1:
+        if self.layers > 1:
             for l in range(1, self.layers):
-                builder = dy.VanillaLSTMBuilder(1, state_hsize, state_hsize, self.pc) # SimpleRNNBuilder
+                builder = dy.VanillaLSTMBuilder(1, state_hsize, state_hsize, self.pc)  # SimpleRNNBuilder
                 self.rnn_builders.append(builder)
 
         if self.mc.add_nl_layer:
-            self.MLPW  = self.pc.add_parameters((state_hsize, state_hsize))
-            self.MLPB  = self.pc.add_parameters(state_hsize)
+            self.MLPW = self.pc.add_parameters((state_hsize, state_hsize))
+            self.MLPB = self.pc.add_parameters(state_hsize)
 
-        self.adapterW  = self.pc.add_parameters((output_size, state_hsize))
-        self.adapterB  = self.pc.add_parameters(output_size)
+        self.adapterW = self.pc.add_parameters((output_size, state_hsize))
+        self.adapterB = self.pc.add_parameters(output_size)
 
     def declare_expr(self):
         self.rnn_stack = []
@@ -210,11 +217,11 @@ class LSTM(object):
 
     def __call__(self, sequence):
         if not hasattr(self, 'rnn_stack'):
-            print("RNN initialized")
+            self.logger.info("RNN initialized")
             self.declare_expr()
 
         rnn_ex = self.rnn_stack[0].add_input(sequence).output()
-        if self.layers>1:
+        if self.layers > 1:
             for l in range(1, self.layers):
                 rnn_ex = rnn_ex + self.rnn_stack[l].add_input(rnn_ex).output()
 
@@ -225,11 +232,14 @@ class LSTM(object):
         out_ex = (self.adapterW_ex * rnn_ex) + self.adapterB_ex
         return out_ex
 
+
 class ESRNN(object):
-    def __init__(self, mc_yaml_dir='config_esrnn.yaml'):
+    def __init__(self, logger=None, mc_yaml_dir=os.path.join(os.path.dirname(__file__), 'config_esrnn.yaml')):
 
         mc = ModelConfig(config_file=mc_yaml_dir, root_dir='./')
         self.mc = mc
+
+        self.logger = logger if logger else logging.getLogger(__name__)
 
     def compute_levels_seasons(self, ts_object):
         return self.es.compute_levels_seasons(ts_object)
@@ -237,15 +247,15 @@ class ESRNN(object):
     def declare_expr(self, ts_object):
         self.es.declare_expr(ts_object)
         self.rnn.declare_expr()
-    
+
     def predict_serie(self, ts_object):
-        dy.renew_cg() # new computation graph    
+        dy.renew_cg()  # new computation graph
         self.declare_expr(ts_object)
         levels_ex, seasonalities_ex, log_diff_of_levels = self.compute_levels_seasons(ts_object)
 
         # Loop not needed, i is the last train observation
         i = len(ts_object.y)
-        input_start = i-self.mc.input_size
+        input_start = i - self.mc.input_size
         input_end = i
 
         # Deseasonalization and normalization
@@ -254,7 +264,7 @@ class ESRNN(object):
         season_ex = seasonalities_ex[input_start:input_end]
         season_ex = dy.concatenate(season_ex)
         input_ex = dy.cdiv(input_ex, season_ex)
-        input_ex = dy.cdiv(input_ex, levels_ex[i-1])
+        input_ex = dy.cdiv(input_ex, levels_ex[i - 1])
         input_ex = dy.log(input_ex)
 
         # ERASED Concatenate categories
@@ -265,14 +275,14 @@ class ESRNN(object):
 
         # Seasonalization and leveling
         season_start = i
-        season_end = i+self.mc.output_size
+        season_end = i + self.mc.output_size
         season_ex = seasonalities_ex[season_start:season_end]
         season_ex = dy.concatenate(season_ex)
 
-        output_ex = dy.cmult(dy.exp(output_ex), season_ex)*levels_ex[i-1]
+        output_ex = dy.cmult(dy.exp(output_ex), season_ex) * levels_ex[i - 1]
 
         return output_ex
-  
+
     def get_dir_name(self, root_dir=None):
         if not root_dir:
             assert self.mc.root_dir
@@ -281,8 +291,8 @@ class ESRNN(object):
         data_dir = self.mc.dataset_name
         model_parent_dir = os.path.join(root_dir, data_dir)
         model_path = ['num_series_{}'.format(self.mc.max_num_series),
-                        'lr_{}'.format(self.mc.learning_rate),
-                        str(self.mc.copy)]
+                      'lr_{}'.format(self.mc.learning_rate),
+                      str(self.mc.copy)]
         model_dir = os.path.join(model_parent_dir, '_'.join(model_path))
         return model_dir
 
@@ -300,7 +310,7 @@ class ESRNN(object):
         rnn_filepath = os.path.join(model_dir, "rnn.model")
         es_filepath = os.path.join(model_dir, "es.model")
 
-        print('Saving model to:\n {}'.format(model_dir)+'\n')
+        self.logger.info('Saving model to:\n {}'.format(model_dir) + '\n')
         self.rnn.pc.save(rnn_filepath)
         self.es.pc.save(es_filepath)
 
@@ -317,11 +327,11 @@ class ESRNN(object):
         path = Path(rnn_filepath)
 
         if path.is_file():
-            print('Loading model from:\n {}'.format(model_dir)+'\n')
+            self.logger.info('Loading model from:\n {}'.format(model_dir) + '\n')
             self.rnn.pc.populate(rnn_filepath)
             self.es.pc.populate(es_filepath)
         else:
-            print('Model path {} does not exist'.format(path))
+            self.logger.error('Model path {} does not exist'.format(path))
 
     def pinball_loss(self, y, y_hat, tau=0.5):
         """Computes the pinball loss between y and y_hat.
@@ -340,22 +350,22 @@ class ESRNN(object):
     def level_variability_loss(self, y, level_variability_penalty):
         level_var_loss = []
         for i in range(1, len(y)):
-            diff_ex = y[i]-y[i-1]
-            level_var_loss.append(diff_ex*diff_ex)
+            diff_ex = y[i] - y[i - 1]
+            level_var_loss.append(diff_ex * diff_ex)
         level_var_loss_ex = dy.average(level_var_loss)
         level_var_loss_ex *= level_variability_penalty
         return level_var_loss_ex
 
     def train(self):
-        print(10*'='+' Training esrnn ' + 10*'=')
+        self.logger.info(10 * '=' + ' Training esrnn ' + 10 * '=')
 
         # Trainers
-        per_series_trainer = dy.AdamTrainer(self.es.pc, alpha=self.mc.learning_rate*self.mc.per_series_lr_multip, 
-                                        beta_1=0.9, beta_2=0.999, eps=self.mc.gradient_eps)
+        per_series_trainer = dy.AdamTrainer(self.es.pc, alpha=self.mc.learning_rate * self.mc.per_series_lr_multip,
+                                            beta_1=0.9, beta_2=0.999, eps=self.mc.gradient_eps)
         per_series_trainer.set_clip_threshold(self.mc.gradient_clipping_threshold)
 
         trainer = dy.AdamTrainer(self.rnn.pc, alpha=self.mc.learning_rate,
-                                beta_1=0.9, beta_2=0.999, eps=self.mc.gradient_eps)
+                                 beta_1=0.9, beta_2=0.999, eps=self.mc.gradient_eps)
         trainer.set_clip_threshold(self.mc.gradient_clipping_threshold)
 
         # training code
@@ -364,18 +374,18 @@ class ESRNN(object):
             forecast_losses = []
             lev_variability_losses = []
             state_losses = []
-            
+
             for ts_object in self.X_train_tsobject:
-                dy.renew_cg() # new computation graph
-                
+                dy.renew_cg()  # new computation graph
+
                 self.declare_expr(ts_object)
                 levels_ex, seasonalities_ex, log_diff_of_levels = self.compute_levels_seasons(ts_object)
-                
+
                 losses = []
-                for i in range(self.mc.input_size-1, len(ts_object.y)-self.mc.output_size):
-                    input_start = i+1-self.mc.input_size
-                    input_end = i+1
-                    
+                for i in range(self.mc.input_size - 1, len(ts_object.y) - self.mc.output_size):
+                    input_start = i + 1 - self.mc.input_size
+                    input_end = i + 1
+
                     # Deseasonalization and normalization
                     input_ex = ts_object.y[input_start:input_end]
                     input_ex = dy_arrInput(input_ex)
@@ -384,16 +394,16 @@ class ESRNN(object):
                     input_ex = dy.cdiv(input_ex, season_ex)
                     input_ex = dy.cdiv(input_ex, levels_ex[i])
                     input_ex = dy.noise(dy.log(input_ex), self.mc.noise_std)
-                    
+
                     # ERASED Concatenate categories
                     # categories_ex = dy_arrInput(ts_object.categories_vect)
                     # input_ex = dy.concatenate([input_ex, categories_ex])
-            
+
                     output_ex = self.rnn(input_ex)
-                    
-                    labels_start = i+1
-                    labels_end = i+1+self.mc.output_size
-                    
+
+                    labels_start = i + 1
+                    labels_end = i + 1 + self.mc.output_size
+
                     # Deseasonalization and normalization
                     labels_ex = ts_object.y[labels_start:labels_end]
                     labels_ex = dy_arrInput(labels_ex)
@@ -401,49 +411,49 @@ class ESRNN(object):
                     season_ex = dy.concatenate(season_ex)
                     labels_ex = dy.cdiv(labels_ex, season_ex)
                     labels_ex = dy.cdiv(dy.log(labels_ex), levels_ex[i])
-                    
+
                     loss_ex = self.pinball_loss(labels_ex, output_ex)
                     losses.append(loss_ex)
-                
+
                 # Losses
                 forecloss_ex = dy.average(losses)
                 loss_ex = forecloss_ex
                 forecast_losses.append(forecloss_ex.npvalue())
 
-                if self.mc.level_variability_penalty>0:
-                    level_var_loss_ex = self.level_variability_loss(log_diff_of_levels, 
-                                                            self.mc.level_variability_penalty)
+                if self.mc.level_variability_penalty > 0:
+                    level_var_loss_ex = self.level_variability_loss(log_diff_of_levels,
+                                                                    self.mc.level_variability_penalty)
                     loss_ex += level_var_loss_ex
                     lev_variability_losses.append(level_var_loss_ex.npvalue())
-                
+
                 loss_ex.backward()
                 try:
                     trainer.update()
                     per_series_trainer.update()
                 except:
-                    print('Fail updating trainer in series: {}'.format(self.unique_ids[j]))
-                    print(ts_object.y)
+                    self.logger.error('Fail updating trainer in series: {}'.format(self.unique_ids[j]))
+                    self.logger.error(ts_object.y)
                     levels_np = [level.npvalue() for level in levels_ex]
-                    print('Levels: {}'.format(levels_np))
-                    print('Min level: {}'.format(min(levels_np)))
+                    self.logger.error('Levels: {}'.format(levels_np))
+                    self.logger.error('Min level: {}'.format(min(levels_np)))
 
                     season_np = [season.npvalue() for season in season_ex]
-                    print('Seasons: {}'.format(season_np))
-                    print('Min season: {}'.format(min(season_np)))
+                    self.logger.error('Seasons: {}'.format(season_np))
+                    self.logger.error('Min season: {}'.format(min(season_np)))
 
-                    print('Level_var_loss: {}'.format(level_var_loss_ex.npvalue()))
+                    self.logger.error('Level_var_loss: {}'.format(level_var_loss_ex.npvalue()))
 
-                    print('Seasonality parameter: {}'.format(self.es.seas_sms_ex.npvalue()))
-                    print('Level parameter: {}'.format(self.es.lev_sms_ex.npvalue()))
+                    self.logger.error('Seasonality parameter: {}'.format(self.es.seas_sms_ex.npvalue()))
+                    self.logger.error('Level parameter: {}'.format(self.es.lev_sms_ex.npvalue()))
 
-                    #self.es.pc.reset_gradient()
-                    #self.rnn.pc.reset_gradient()
+                    # self.es.pc.reset_gradient()
+                    # self.rnn.pc.reset_gradient()
 
-            print("========= Epoch {} finished =========".format(epoch))
-            print("Training time: {}".format(time.time()-start))
-            print("Forecast loss: {}".format(np.mean(forecloss_ex.npvalue())))
+            self.logger.info("========= Epoch {} finished =========".format(epoch))
+            self.logger.info("Training time: {}".format(time.time() - start))
+            self.logger.info("Forecast loss: {}".format(np.mean(forecloss_ex.npvalue())))
 
-        print('Train finished')
+        self.logger.info('Train finished')
 
     def get_trainable_ids(self, X):
         """
@@ -524,11 +534,9 @@ class ESRNN(object):
 
             # Serie prediction
             Y_hat_id["unique_id"] = idx
-            ds = date_range = pd.date_range(start=ts_object.last_ds, periods=self.mc.output_size+1, freq=self.mc.frequency)
+            ds = date_range = pd.date_range(start=ts_object.last_ds, periods=self.mc.output_size + 1,
+                                            freq=self.mc.frequency)
             Y_hat_id["ds"] = ds[1:]
             Y_hat_panel = Y_hat_panel.append(Y_hat_id, sort=False).reset_index(drop=True)
 
         return Y_hat_panel
-
-       
-        
