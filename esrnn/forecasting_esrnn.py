@@ -141,6 +141,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Input, Output, Fo
 
     def fit(self, *, timeout: float = None, iterations: int = None) -> CallResult[None]:
         self._esrnn.fit(self._data)
+        self._is_fitted = True
 
     def produce(self, *, inputs: Inputs, timeout: float = None, iterations: int = None) -> CallResult[Outputs]:
         predictions = self._esrnn.predict()
