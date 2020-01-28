@@ -97,6 +97,11 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Input, Output, Fo
         # sort by time column
         data = data.sort_values(by=[self.time_column])
 
+        # mark key and grp variables
+        self.key = data.metadata.get_columns_with_semantic_type(
+            "https://metadata.datadrivendiscovery.org/types/PrimaryKey"
+        )
+
         # mark target variables
         self._targets = data.metadata.list_columns_with_semantic_types(
             (
@@ -119,25 +124,55 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Input, Output, Fo
 
         self.target_column = self._targets[0]
 
-        # mark primary key
-        self.key_column = 'd3mIndex'
-        # self._keys = data.metadata.list_columns_with_semantic_types(
-        #     (
-        #         'https://metadata.datadrivendiscovery.org/types/PrimaryKey'
-        #     )
-        # )
-        # self._keys = [list(data)[t] for t in self._keys]
-        # self.key_column = self._keys[0]
+        # see if 'GroupingKey' has been marked
+        # otherwise fall through to use 'SuggestedGroupingKey'
+        grouping_keys = data.metadata.get_columns_with_semantic_type(
+            "https://metadata.datadrivendiscovery.org/types/GroupingKey"
+        )
+        suggested_grouping_keys = data.metadata.get_columns_with_semantic_type(
+            "https://metadata.datadrivendiscovery.org/types/SuggestedGroupingKey"
+        )
+        if len(grouping_keys) == 0:
+            grouping_keys = suggested_grouping_keys
+            drop_list = []
+        else:
+            drop_list = suggested_grouping_keys
 
-        # rename columns to the ones expected by the model
-        data = data.rename(columns={
-            self.key_column: 'unique_id',
-            self.time_column: 'ds',
-            self.target_column: 'y'
-        })
+        grouping_keys_counts = [
+            data.iloc[:, key_idx].nunique() for key_idx in grouping_keys
+        ]
+        grouping_keys = [
+            group_key
+            for count, group_key in sorted(zip(grouping_keys_counts, grouping_keys))
+        ]
+        self.filter_idxs = [list(data)[key] for key in grouping_keys]
 
-        # extract required columns by the model
-        self._data = data[['unique_id', 'ds', 'y']]
+        # drop index
+        data.drop(
+            columns=[list(data)[i] for i in drop_list + self.key], inplace=True
+        )
+
+        # check whether no grouping keys are labeled
+        if len(grouping_keys) == 0:
+            # TODO
+            pass
+        else:
+            # create a column for year
+            year_column = 'year'
+            count = 0
+            while year_column in data.columns:
+                year_column = 'year_' + str(count)
+                count += count
+
+            # create year column and add it to the grouping_keys
+            data[year_column] = data[self.time_column].dt.year
+            self.filter_idxs.append(year_column)
+
+            # concatenate columns in `grouping_keys` to unique_id column
+            concat = data.loc[:, self.filter_idxs].apply(lambda x: '-'.join([str(v) for v in x]), axis=1)
+            concat = pd.concat([concat, data[self.time_column], data[self.target_column]], axis=1)
+            concat.columns = ['unique_id', 'ds', 'y']
+            self._data = concat
 
     def fit(self, *, timeout: float = None, iterations: int = None) -> CallResult[None]:
         self._esrnn.fit(self._data)
