@@ -88,7 +88,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
             },
             'installation': [{
                 'type': metadata_base.PrimitiveInstallationType.PIP,
-                'package_uri': 'git+https://github.com/autonlab/esrnn.git@{git_commit}#egg=autonbox'.format(
+                'package_uri': 'git+https://github.com/autonlab/esrnn.git@{git_commit}#egg=esrnn'.format(
                     git_commit=d3m_utils.current_git_commit(os.path.dirname(__file__)),
                 ),
             }],
