@@ -34,7 +34,7 @@ class ESRNN(object):
                           frequency=frequency, max_periods=max_periods, device=device, root_dir=root_dir)
 
   def train(self, dataloader, random_seed):
-    print(10*'='+' Training ESRNN ' + 10*'=' + '\n')
+    # print(10*'='+' Training ESRNN ' + 10*'=' + '\n')
 
     # Optimizers
     es_optimizer = optim.Adam(params=self.esrnn.es.parameters(),
@@ -82,11 +82,11 @@ class ESRNN(object):
       es_scheduler.step()
       rnn_scheduler.step()
 
-      print("========= Epoch {} finished =========".format(epoch))
-      print("Training time: {}".format(time.time()-start))
-      print("Forecast loss: {}".format(np.mean(losses)))
-
-    print('Train finished!')
+    #   print("========= Epoch {} finished =========".format(epoch))
+    #   print("Training time: {}".format(time.time()-start))
+    #   print("Forecast loss: {}".format(np.mean(losses)))
+    #
+    # print('Train finished!')
   
   def fit(self, X_df, y_df, shuffle=True, random_seed=1):
     # Transform long dfs to wide numpy
