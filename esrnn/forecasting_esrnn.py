@@ -172,6 +172,10 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Input, Output, Fo
             concat = data.loc[:, self.filter_idxs].apply(lambda x: '-'.join([str(v) for v in x]), axis=1)
             concat = pd.concat([concat, data[self.time_column], data[self.target_column]], axis=1)
             concat.columns = ['unique_id', 'ds', 'y']
+
+            # Series must be complete in the frequency
+            concat = ForecastingESRNNPrimitive._ffill_missing_dates_per_serie(concat, 'D')
+
             self._data = concat
 
     def fit(self, *, timeout: float = None, iterations: int = None) -> CallResult[None]:
@@ -188,3 +192,58 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Input, Output, Fo
 
     def get_params(self) -> Params:
         return ForecastingESRNNParams(is_fitted=self._is_fitted)
+
+    @staticmethod
+    def _ffill_missing_dates_particular_serie(serie, min_date, max_date, freq):
+        date_range = pd.date_range(start=min_date, end=max_date, freq=freq)
+        unique_id = serie['unique_id'].unique()
+        df_balanced = pd.DataFrame({'ds':date_range, 'key':[1]*len(date_range), 'unique_id': unique_id[0]})
+
+        # Check balance
+        check_balance = df_balanced.groupby(['unique_id']).size().reset_index(name='count')
+        assert len(set(check_balance['count'].values)) <= 1
+        df_balanced = df_balanced.merge(serie, how="left", on=['unique_id', 'ds'])
+
+        df_balanced['y'] = df_balanced['y'].fillna(method='ffill')
+        df_balanced['x'] = df_balanced['x'].fillna(method='ffill')
+
+
+        return df_balanced
+
+    @staticmethod
+    def _ffill_missing_dates_per_serie(df, freq="D", fixed_max_date=None):
+        """Receives a DataFrame with a date column and forward fills the missing gaps in dates, not filling dates before
+        the first appearance of a unique key
+
+        Parameters
+        ----------
+        df: DataFrame
+            Input DataFrame
+        key: str or list
+            Name(s) of the column(s) which make a unique time series
+        date_col: str
+            Name of the column that contains the time column
+        freq: str
+            Pandas time frequency standard strings, like "W-THU" or "D" or "M"
+        numeric_to_fill: str or list
+            Name(s) of the columns with numeric values to fill "fill_value" with
+        """
+        if fixed_max_date is None:
+            df_max_min_dates = df[['unique_id', 'ds']].groupby('unique_id').agg(['min', 'max']).reset_index()
+        else:
+            df_max_min_dates = df[['unique_id', 'ds']].groupby('unique_id').agg(['min']).reset_index()
+            df_max_min_dates['max'] = fixed_max_date
+
+        df_max_min_dates.columns = df_max_min_dates.columns.droplevel()
+        df_max_min_dates.columns = ['unique_id', 'min_date', 'max_date']
+
+        df_list = []
+        for index, row in df_max_min_dates.iterrows():
+            df_id = df[df['unique_id'] == row['unique_id']]
+            df_id = ForecastingESRNNPrimitive._ffill_missing_dates_particular_serie(df_id, row['min_date'], row['max_date'], freq)
+            df_list.append(df_id)
+
+        df_dates = pd.concat(df_list).reset_index(drop=True).drop('key', axis=1)[['unique_id', 'ds', 'y','x']]
+
+        return df_dates
+
