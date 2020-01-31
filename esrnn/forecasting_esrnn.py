@@ -213,7 +213,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Input, Output, Fo
     def _ffill_missing_dates_particular_serie(serie, min_date, max_date, freq):
         date_range = pd.date_range(start=min_date, end=max_date, freq=freq)
         unique_id = serie['unique_id'].unique()
-        df_balanced = pd.DataFrame({'ds':date_range, 'key':[1]*len(date_range), 'unique_id': unique_id[0]})
+        df_balanced = pd.DataFrame({'ds': date_range, 'key': [1] * len(date_range), 'unique_id': unique_id[0]})
 
         # Check balance
         check_balance = df_balanced.groupby(['unique_id']).size().reset_index(name='count')
@@ -222,7 +222,6 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Input, Output, Fo
 
         df_balanced['y'] = df_balanced['y'].fillna(method='ffill')
         df_balanced['x'] = df_balanced['x'].fillna(method='ffill')
-
 
         return df_balanced
 
@@ -256,10 +255,10 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Input, Output, Fo
         df_list = []
         for index, row in df_max_min_dates.iterrows():
             df_id = df[df['unique_id'] == row['unique_id']]
-            df_id = ForecastingESRNNPrimitive._ffill_missing_dates_particular_serie(df_id, row['min_date'], row['max_date'], freq)
+            df_id = ForecastingESRNNPrimitive._ffill_missing_dates_particular_serie(df_id, row['min_date'],
+                                                                                    row['max_date'], freq)
             df_list.append(df_id)
 
-        df_dates = pd.concat(df_list).reset_index(drop=True).drop('key', axis=1)[['unique_id', 'ds', 'y','x']]
+        df_dates = pd.concat(df_list).reset_index(drop=True).drop('key', axis=1)[['unique_id', 'ds', 'y', 'x']]
 
         return df_dates
-
