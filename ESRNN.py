@@ -17,13 +17,19 @@ from utils.data import Iterator
 
 
 class ESRNN(object):
-  def __init__(self, max_epochs=15, batch_size=1, learning_rate=1e-3, per_series_lr_multip=1, gradient_eps=1e-6, gradient_clipping_threshold=20,
-                lr_scheduler_step_size=9, noise_std=0.001, level_variability_penalty=80, tau=0.5, state_hsize=40, dilations=[[1, 2], [4, 8]],
-                add_nl_layer=False, seasonality=4, input_size=4, output_size=8, frequency='D', max_periods=20, device='cpu', root_dir='./'):
+  def __init__(self, max_epochs=15, batch_size=1,
+               learning_rate=1e-3, per_series_lr_multip=1, gradient_eps=1e-6, gradient_clipping_threshold=20,
+               lr_scheduler_step_size=9, noise_std=0.001, 
+               level_variability_penalty=80, tau=0.5, c_state_penalty=0,
+               state_hsize=40, dilations=[[1, 2], [4, 8]],
+               add_nl_layer=False, seasonality=4, input_size=4, output_size=8, frequency='D', max_periods=20, device='cpu', root_dir='./'):
     super(ESRNN, self).__init__()
-    self.mc = ModelConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=learning_rate, per_series_lr_multip=per_series_lr_multip, 
-                          gradient_eps=gradient_eps, gradient_clipping_threshold=gradient_clipping_threshold, lr_scheduler_step_size=lr_scheduler_step_size, 
-                          noise_std=noise_std, level_variability_penalty=level_variability_penalty, tau=tau,
+    self.mc = ModelConfig(max_epochs=max_epochs, batch_size=batch_size, 
+                          learning_rate=learning_rate, per_series_lr_multip=per_series_lr_multip, 
+                          gradient_eps=gradient_eps, gradient_clipping_threshold=gradient_clipping_threshold, 
+                          lr_scheduler_step_size=lr_scheduler_step_size, noise_std=noise_std, 
+                          level_variability_penalty=level_variability_penalty, tau=tau,
+                          c_state_penalty=c_state_penalty,
                           state_hsize=state_hsize, dilations=dilations, add_nl_layer=add_nl_layer, 
                           seasonality=seasonality, input_size=input_size, output_size=output_size,
                           frequency=frequency, max_periods=max_periods, device=device, root_dir=root_dir)
@@ -42,7 +48,8 @@ class ESRNN(object):
 
     rnn_optimizer = optim.Adam(params=self.esrnn.rnn.parameters(),
                                lr=self.mc.learning_rate,
-                               betas=(0.9, 0.999), eps=self.mc.gradient_eps)
+                               betas=(0.9, 0.999), eps=self.mc.gradient_eps,
+                               weight_decay=self.mc.c_state_penalty)
 
     rnn_scheduler = StepLR(optimizer=rnn_optimizer,
                            step_size=self.mc.lr_scheduler_step_size,
@@ -113,7 +120,7 @@ class ESRNN(object):
     # Train model
     self.train(dataloader=self.dataloader, random_seed=random_seed)
 
-  def predict(self, X_df):
+  def predict(self, X_df, decomposition=False):
     """
         Predictions for all stored time series
     Returns:
@@ -135,11 +142,14 @@ class ESRNN(object):
       # Corresponding train batch
       batch = self.dataloader.get_batch(unique_id=unique_id)
 
-      # Declare y_hat_id placeholder
-      Y_hat_id = pd.DataFrame(np.zeros(shape=(self.mc.output_size, 1)), columns=["y_hat"])
-
       # Prediction
-      y_hat = self.esrnn.predict(batch)
+      if decomposition:
+        Y_hat_id = pd.DataFrame(np.zeros(shape=(self.mc.output_size, 4)), columns=["y_hat", "trend", "seasonalities", "level"])
+        y_hat, trends, seasonalities, level = self.esrnn.predict(batch)
+      else:
+        Y_hat_id = pd.DataFrame(np.zeros(shape=(self.mc.output_size, 1)), columns=["y_hat"])
+        y_hat, _, _, _ = self.esrnn.predict(batch)
+
       y_hat = y_hat.squeeze()
       Y_hat_id.iloc[:, 0] = y_hat
 
@@ -148,6 +158,12 @@ class ESRNN(object):
       ts = date_range = pd.date_range(start=batch.last_ds[0],
                                       periods=self.mc.output_size+1, freq=self.mc.frequency)
       Y_hat_id["ds"] = ts[1:]
+
+      if decomposition:
+        Y_hat_id["trend"] = trends.squeeze()
+        Y_hat_id["seasonalities"] = seasonalities.squeeze()
+        Y_hat_id["level"] = level.squeeze()
+
       Y_hat_panel = Y_hat_panel.append(Y_hat_id, sort=False).reset_index(drop=True)
 
     if 'ds' in X_df:
