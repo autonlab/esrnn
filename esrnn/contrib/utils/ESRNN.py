@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from utils.DRNN import DRNN
+from esrnn.contrib.utils.DRNN import DRNN
 import numpy as np
 
 class _ES(nn.Module):
