@@ -45,7 +45,6 @@ setup(
         'scipy',
         'torch>=1.3.1'
     ],
-    include_package_data=True,
     entry_points=read_entry_points(),
     url='https://github.com/autonlab/esrnn',
 )
