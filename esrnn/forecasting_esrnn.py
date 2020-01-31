@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 from d3m import container, utils as d3m_utils
+from d3m.exceptions import PrimitiveNotFittedError
 from d3m.metadata import params
 from d3m.metadata import base as metadata_base, hyperparams
 from d3m.primitive_interfaces import base
@@ -201,7 +202,50 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         return base.CallResult(None)
 
     def produce(self, *, inputs: Inputs, timeout: float = None, iterations: int = None) -> CallResult[Outputs]:
-        predictions = self._esrnn.predict()
+        if not self._is_fitted:
+            raise PrimitiveNotFittedError("Primitive not fitted.")
+
+        inputs_copy = inputs.copy()
+
+        # if datetime columns are integers, parse as # of days
+        if self._integer_time:
+            inputs_copy[self._time_column] = pd.to_datetime(
+                inputs_copy[self._time_column] - 1, unit="D"
+            )
+        else:
+            inputs_copy[self._time_column] = pd.to_datetime(
+                inputs_copy[self._time_column], unit="s"
+            )
+
+        # find marked 'GroupingKey' or 'SuggestedGroupingKey'
+        grouping_keys = inputs_copy.metadata.get_columns_with_semantic_type(
+            "https://metadata.datadrivendiscovery.org/types/GroupingKey"
+        )
+        suggested_grouping_keys = inputs_copy.metadata.get_columns_with_semantic_type(
+            "https://metadata.datadrivendiscovery.org/types/SuggestedGroupingKey"
+        )
+        if len(grouping_keys) == 0:
+            grouping_keys = suggested_grouping_keys
+        else:
+            inputs_copy = inputs_copy.drop(columns=[list(inputs_copy)[i] for i in suggested_grouping_keys])
+
+        # check whether no grouping keys are labeled
+        if len(grouping_keys) == 0:
+            # TODO
+            pass
+        else:
+            # create year column and add it to the grouping_keys
+            inputs_copy[self._year_column] = inputs_copy[self._time_column].dt.year
+
+            # concatenate columns in `grouping_keys` to unique_id column
+            concat = inputs_copy.loc[:, self.filter_idxs].apply(lambda x: '-'.join([str(v) for v in x]), axis=1)
+            concat = pd.concat([concat, inputs_copy[self._time_column]], axis=1)
+            concat.columns = ['unique_id', 'ds']
+
+        X_test = concat[['unique_id', 'ds']]
+
+        predictions = self._esrnn.predict(X_test)
+        predictions = predictions['y_hat']
         output = container.DataFrame(predictions, generate_metadata=True)
         return base.CallResult(output)
 
