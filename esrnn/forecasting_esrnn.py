@@ -198,6 +198,8 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         self._esrnn.fit(X_train, y_train, self.random_seed)
         self._is_fitted = True
 
+        return base.CallResult(None)
+
     def produce(self, *, inputs: Inputs, timeout: float = None, iterations: int = None) -> CallResult[Outputs]:
         predictions = self._esrnn.predict()
         output = container.DataFrame(predictions, generate_metadata=True)
