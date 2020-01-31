@@ -5,15 +5,14 @@ import numpy as np
 import pandas as pd
 
 import torch
-import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 
 from pathlib import Path
-from utils.config import ModelConfig
-from utils.ESRNN import _ESRNN
-from utils.losses import SmylLoss
-from utils.data import Iterator
+from esrnn.contrib.utils.config import ModelConfig
+from esrnn.contrib.utils.ESRNN import _ESRNN
+from esrnn.contrib.utils.losses import SmylLoss
+from esrnn.contrib.utils.data import Iterator
 
 
 class ESRNN(object):
