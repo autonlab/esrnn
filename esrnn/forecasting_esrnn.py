@@ -60,8 +60,14 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Input, Output, Fo
         super().__init__(hyperparams=hyperparams, random_seed=random_seed)
 
         self._is_fitted = False
-        self._esrnn = ESRNN(logger=self.logger)  # hyperpars are specified in a .yaml file
+        # self._esrnn = ESRNN(logger=self.logger)
+        self._esrnn = ESRNN(
+            max_epochs=0, batch_size=8, learning_rate=1e-3,
+            seasonality=30, input_size=30, output_size=60
+        )
         self._data = None
+        self._integer_time = False
+        self._year_column = None
 
     def set_training_data(self, *, inputs: Inputs, outputs: Outputs) -> None:
         data = inputs.horizontal_concat(outputs)
@@ -78,24 +84,24 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Input, Output, Fo
             raise ValueError(
                 f"There are {len(times)} indices marked as datetime values. Please only specify one"
             )
-        self.time_column = list(data)[times[0]]
+        self._time_column = list(data)[times[0]]
 
         # if datetime columns are integers, parse as # of days
         if (
                 "http://schema.org/Integer"
                 in inputs.metadata.query_column(times[0])["semantic_types"]
         ):
-            self.integer_time = True
-            data[self.time_column] = pd.to_datetime(
-                data[self.time_column] - 1, unit="D"
+            self._integer_time = True
+            data[self._time_column] = pd.to_datetime(
+                data[self._time_column] - 1, unit="D"
             )
         else:
-            data[self.time_column] = pd.to_datetime(
-                data[self.time_column], unit="s"
+            data[self._time_column] = pd.to_datetime(
+                data[self._time_column], unit="s"
             )
 
         # sort by time column
-        data = data.sort_values(by=[self.time_column])
+        data = data.sort_values(by=[self._time_column])
 
         # mark key and grp variables
         self.key = data.metadata.get_columns_with_semantic_type(
@@ -165,21 +171,31 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Input, Output, Fo
                 count += count
 
             # create year column and add it to the grouping_keys
-            data[year_column] = data[self.time_column].dt.year
+            data[year_column] = data[self._time_column].dt.year
+            self._year_column = year_column
             self.filter_idxs.append(year_column)
 
             # concatenate columns in `grouping_keys` to unique_id column
             concat = data.loc[:, self.filter_idxs].apply(lambda x: '-'.join([str(v) for v in x]), axis=1)
-            concat = pd.concat([concat, data[self.time_column], data[self.target_column]], axis=1)
-            concat.columns = ['unique_id', 'ds', 'y']
+            concat = pd.concat([concat,
+                                data[year_column].astype(str),
+                                data[self._time_column],
+                                data[self.target_column]],
+                               axis=1)
+            concat.columns = ['unique_id', 'x', 'ds', 'y']
 
             # Series must be complete in the frequency
             concat = ForecastingESRNNPrimitive._ffill_missing_dates_per_serie(concat, 'D')
 
+            # remove duplicates
+            concat = concat[~ concat[['unique_id', 'ds']].duplicated()]
+
             self._data = concat
 
     def fit(self, *, timeout: float = None, iterations: int = None) -> CallResult[None]:
-        self._esrnn.fit(self._data)
+        X_train = self._data[['unique_id', 'ds', 'x']]
+        y_train = self._data[['unique_id', 'ds', 'y']]
+        self._esrnn.fit(X_train, y_train, self.random_seed)
         self._is_fitted = True
 
     def produce(self, *, inputs: Inputs, timeout: float = None, iterations: int = None) -> CallResult[Outputs]:
