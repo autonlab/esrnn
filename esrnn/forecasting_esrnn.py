@@ -8,7 +8,7 @@ from d3m.primitive_interfaces.base import Inputs, CallResult, Outputs, Params
 from d3m.primitive_interfaces.supervised_learning import SupervisedLearnerPrimitiveBase
 
 import esrnn
-from esrnn.contrib.esrnn import ESRNN
+from esrnn.contrib.ESRNN import ESRNN
 
 Input = container.DataFrame
 Output = container.DataFrame
