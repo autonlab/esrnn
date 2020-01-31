@@ -10,8 +10,8 @@ from d3m.primitive_interfaces.supervised_learning import SupervisedLearnerPrimit
 import esrnn
 from esrnn.contrib.ESRNN import ESRNN
 
-Input = container.DataFrame
-Output = container.DataFrame
+Inputs = container.DataFrame
+Outputs = container.DataFrame
 
 
 class Hyperparams(hyperparams.Hyperparams):
@@ -26,7 +26,7 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
     pass
 
 
-class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Input, Output, ForecastingESRNNParams,
+class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, ForecastingESRNNParams,
                                                                ForecastingESRNNHyperparams]):
     """
     Hybrid ES-RNN models for time series forecasting
