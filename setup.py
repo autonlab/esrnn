@@ -43,9 +43,7 @@ setup(
         'numpy',
         'pandas',
         'scipy',
-        'cython',
-        'mkl',
-        'dynet'
+        'torch>=1.3.1'
     ],
     include_package_data=True,
     entry_points=read_entry_points(),
