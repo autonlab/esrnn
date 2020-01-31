@@ -1,4 +1,6 @@
 import os
+import sys
+
 import pandas as pd
 from d3m import container, utils as d3m_utils
 from d3m.exceptions import PrimitiveNotFittedError
@@ -24,7 +26,47 @@ class ForecastingESRNNParams(params.Params):
 
 
 class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
-    pass
+    max_epochs = hyperparams.UniformInt(
+        default=50,
+        lower=0,
+        upper=sys.maxsize,
+        description="epochs to do on fit process",
+        semantic_types=["http://schema.org/Boolean",
+                        "https://metadata.datadrivendiscovery.org/types/ControlParameter", ]
+    )
+    batch_size = hyperparams.UniformInt(
+        default=8,
+        lower=1,
+        upper=10000,
+        description="The batch size for RNN training",
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter", ]
+    )
+    learning_rate = hyperparams.Hyperparameter[float](
+        semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
+        default=1e-3,
+        description='Learning rate used during training (fit).'
+    )
+    seasonality = hyperparams.UniformInt(
+        default=30,
+        lower=1,
+        upper=10000,
+        description="",  # TODO
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter", ]
+    )
+    input_size = hyperparams.UniformInt(
+        default=30,
+        lower=1,
+        upper=10000,
+        description="",  # TODO
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter", ]
+    )
+    output_size = hyperparams.UniformInt(
+        default=60,
+        lower=1,
+        upper=10000,
+        description="",  # TODO
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter", ]
+    )
 
 
 class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, ForecastingESRNNParams,
@@ -63,8 +105,12 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         self._is_fitted = False
         # self._esrnn = ESRNN(logger=self.logger)
         self._esrnn = ESRNN(
-            max_epochs=0, batch_size=8, learning_rate=1e-3,
-            seasonality=30, input_size=30, output_size=60
+            max_epochs=hyperparams['max_epochs'],
+            batch_size=hyperparams['batch_size'],
+            learning_rate=hyperparams['learning_rate'],
+            seasonality=hyperparams['seasonality'],
+            input_size=hyperparams['input_size'],
+            output_size=hyperparams['output_size']
         )
         self._data = None
         self._integer_time = False
