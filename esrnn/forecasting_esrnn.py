@@ -119,7 +119,7 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
             "https://metadata.datadrivendiscovery.org/types/ControlParameter"
         ],
         values=["D", "M", "Q"],
-        description="A number of string aliases are given to useful common time series frequencies.",
+        description="A number of string aliases are given to useful common time series frequencies. See https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#timeseries-offset-aliases for a list of frequency aliases",
     )
     input_size = hyperparams.UniformInt(
         default=30,
@@ -140,13 +140,6 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
         lower=1,
         upper=10000,
         description="size of one hot encoded categorical variable, invariannt per time series of the panel",
-        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter", ]
-    )
-    min_inp_seq_length = hyperparams.UniformInt(
-        default=60,
-        lower=1,
-        upper=10000,
-        description="",  # TODO
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter", ]
     )
     state_hsize = hyperparams.UniformInt(
@@ -170,7 +163,7 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
         default=20,
         lower=0,
         upper=sys.maxsize,
-        description="Maximum number of periods",  # TODO
+        description="The max number of periods (one period is one season as specified in the other hyperparameters)",
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
     )
     device = hyperparams.Enumeration(
