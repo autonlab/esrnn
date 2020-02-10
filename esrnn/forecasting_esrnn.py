@@ -2,6 +2,7 @@ import os
 import sys
 
 import pandas as pd
+import torch
 from d3m import container, utils as d3m_utils
 from d3m.exceptions import PrimitiveNotFittedError
 from d3m.metadata import params
@@ -27,45 +28,135 @@ class ForecastingESRNNParams(params.Params):
 
 class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
     max_epochs = hyperparams.UniformInt(
+        default=15,
+        lower=0,
+        upper=sys.maxsize,
+        description="Maximum number of complete passes to train data during fit",
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
+    )
+    freq_of_test = hyperparams.UniformInt(
         default=50,
         lower=0,
         upper=sys.maxsize,
-        description="epochs to do on fit process",
-        semantic_types=["http://schema.org/Boolean",
-                        "https://metadata.datadrivendiscovery.org/types/ControlParameter", ]
-    )
-    batch_size = hyperparams.UniformInt(
-        default=8,
-        lower=1,
-        upper=10000,
-        description="The batch size for RNN training",
-        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter", ]
+        description="period for the diagnostic evaluation of the model.",
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
     )
     learning_rate = hyperparams.Hyperparameter[float](
         semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
         default=1e-3,
-        description='Learning rate used during training (fit).'
+        description='Size of the stochastic gradient descent steps'
     )
-    seasonality = hyperparams.UniformInt(
-        default=30,
+    lr_scheduler_step_size = hyperparams.UniformInt(
+        default=9,
         lower=1,
         upper=10000,
-        description="",  # TODO
-        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter", ]
+        description="This step_size is the period for each learning rate decay",
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
+    )
+    per_series_lr_multip = hyperparams.Hyperparameter[float](
+        semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
+        default=1.5,
+        description='Multiplier for per-series parameters smoothing and initial seasonalities learning rate'
+    )
+    gradient_eps = hyperparams.Hyperparameter[float](
+        semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
+        default=1e-8,
+        description='term added to the Adam optimizer denominator to improve numerical stability'
+    )
+    gradient_clipping_threshold = hyperparams.Hyperparameter[float](
+        semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
+        default=20,
+        description='max norm of gradient vector, with all parameters treated as a single vector'
+    )
+    rnn_weight_decay = hyperparams.Hyperparameter[float](
+        semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
+        default=0,
+        description='parameter to control classic L2/Tikhonov regularization of the rnn parameters'
+    )
+    noise_std = hyperparams.Hyperparameter[float](
+        semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
+        default=1e-3,
+        description='standard deviation of white noise added to input during fit to avoid the model from memorizing '
+                    'the train data '
+    )
+    level_variability_penalty = hyperparams.Hyperparameter[float](
+        semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
+        default=100,
+        description='this parameter controls the strength of the penalization to the wigglines of the level vector, '
+                    'induces smoothness in the output '
+    )
+    percentile = hyperparams.Hyperparameter[float](
+        semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
+        default=50,
+        description='This value is only for diagnostic evaluation. In case of percentile predictions this parameter '
+                    'controls for the value predicted, when forecasting point value, the forecast is the median, '
+                    'so percentile=50. '
+    )
+    training_percentile = hyperparams.Hyperparameter[float](
+        semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
+        default=50,
+        description='To reduce the model\'s tendency to over estimate, the training_percentile can be set to fit a smaller value through the Pinball Loss.'
+                    'controls for the value predicted, when forecasting point value, the forecast is the median, '
+                    'so percentile=50. '
+    )
+    batch_size = hyperparams.UniformInt(
+        default=1,
+        lower=10,
+        upper=10000,
+        description="The batch size for RNN training",
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter" ]
+    )
+    seasonality = hyperparams.UniformInt(
+        default=4,
+        lower=4,
+        upper=13,
+        description="main frequency of the time series. Quarterly 4, Daily 7, Monthly 12",
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter" ]
     )
     input_size = hyperparams.UniformInt(
         default=30,
         lower=1,
         upper=10000,
-        description="",  # TODO
-        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter", ]
+        description="input size of the recursive neural network, usually a multiple of seasonality",
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter" ]
     )
     output_size = hyperparams.UniformInt(
         default=60,
         lower=1,
         upper=10000,
+        description="output_size or forecast horizon of the recursive neura network, usually multiple of seasonality",
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter" ]
+    )
+    exogenous_size = hyperparams.UniformInt(
+        default=60,
+        lower=1,
+        upper=10000,
+        description="size of one hot encoded categorical variable, invariannt per time series of the panel",
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter", ]
+    )
+    min_inp_seq_length = hyperparams.UniformInt(
+        default=60,
+        lower=1,
+        upper=10000,
         description="",  # TODO
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter", ]
+    )
+    state_hsize = hyperparams.UniformInt(
+        default=60,
+        lower=1,
+        upper=10000,
+        description="dimension of hidden state of the recursive neural network",
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter", ]
+    )
+    add_nl_layer = hyperparams.UniformBool(
+        default=True,
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter "],
+        description="whether to insert a tanh() layer between the RNN stack and the linear adaptor (output) layers",
+    )
+    data_augmentation = hyperparams.UniformBool(
+        default=False,
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter "],
+        description="True to turn on data augmentation support",
     )
 
 
@@ -79,7 +170,10 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
             'id': '098afc89-da5f-4bf4-9298-dcd39406354c',
             'version': '0.1.0',
             "name": "Hybrid ES-RNN models for time series forecasting",
-            'description': "Hybrid ES-RNN models for time series forecasting",
+            'description': "Pytorch Implementation of the M4 time series forecasting competition winner. Proposed by "
+                           "Smyl. The model uses a hybrid approach of Machine Learning and statistical methods by "
+                           "combining recursive neural networks to model a common trend with shared parameters across "
+                           "series, and multiplicative Holt-Winter exponential smoothing.",
             'python_path': 'd3m.primitives.time_series_forecasting.esrnn.RNN',
             'source': {
                 'name': esrnn.__author__,
@@ -103,14 +197,34 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         super().__init__(hyperparams=hyperparams, random_seed=random_seed)
 
         self._is_fitted = False
+
+        self._device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+        self.logger.info("Loaded weights file")
         # self._esrnn = ESRNN(logger=self.logger)
         self._esrnn = ESRNN(
             max_epochs=hyperparams['max_epochs'],
             batch_size=hyperparams['batch_size'],
+            data_augmentation=hyperparams['data_augmentation'],
             learning_rate=hyperparams['learning_rate'],
+            lr_scheduler_step_size=hyperparams['lr_scheduler_step_size'],
+            per_series_lr_multip=hyperparams['per_series_lr_multip'],
+            gradient_eps=hyperparams['gradient_eps'],
+            gradient_clipping_threshold=hyperparams['gradient_clipping_threshold'],
+            rnn_weight_decay=hyperparams['rnn_weight_decay'],
+            noise_std=hyperparams['noise_std'],
+            level_variability_penalty=hyperparams['level_variability_penalty'],
+            percentile=hyperparams['percentile'],
+            training_percentile=hyperparams['training_percentile'],
+            state_hsize=hyperparams['state_hsize'],
+            dilations=[[1, 7], [28]],
+            add_nl_layer=hyperparams['add_nl_layer'],
             seasonality=hyperparams['seasonality'],
             input_size=hyperparams['input_size'],
-            output_size=hyperparams['output_size']
+            output_size=hyperparams['output_size'],
+            frequency=hyperparams['frequency'],
+            max_periods=hyperparams['max_periods'],
+            device=self._device
         )
         self._data = None
         self._integer_time = False
