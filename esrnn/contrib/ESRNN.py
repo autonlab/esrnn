@@ -266,7 +266,7 @@ class ESRNN(object):
       unique_id_mapping = dict(zip(X_df.unique_id, X_df.unique_id_real))
       X_df = X_df.drop(columns=['unique_id_real'])
 
-    print(9*'='+' Predicting ESRNN ' + 9*'=' + '\n')
+    # print(9*'='+' Predicting ESRNN ' + 9*'=' + '\n')
     assert type(X_df) == pd.core.frame.DataFrame
     assert 'unique_id' in X_df
 
