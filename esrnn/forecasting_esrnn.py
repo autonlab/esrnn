@@ -101,7 +101,7 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
     )
     batch_size = hyperparams.UniformInt(
         default=1,
-        lower=10,
+        lower=1,
         upper=10000,
         description="The batch size for RNN training",
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter" ]
@@ -112,6 +112,14 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
         upper=13,
         description="main frequency of the time series. Quarterly 4, Daily 7, Monthly 12",
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter" ]
+    )
+    frequency = hyperparams.Enumeration(
+        default="D",
+        semantic_types=[
+            "https://metadata.datadrivendiscovery.org/types/ControlParameter"
+        ],
+        values=["D", "M", "Q"],
+        description="A number of string aliases are given to useful common time series frequencies.",
     )
     input_size = hyperparams.UniformInt(
         default=30,
@@ -150,13 +158,20 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
     )
     add_nl_layer = hyperparams.UniformBool(
         default=True,
-        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter "],
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"],
         description="whether to insert a tanh() layer between the RNN stack and the linear adaptor (output) layers",
     )
     data_augmentation = hyperparams.UniformBool(
         default=False,
-        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter "],
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"],
         description="True to turn on data augmentation support",
+    )
+    max_periods = hyperparams.UniformInt(
+        default=20,
+        lower=0,
+        upper=sys.maxsize,
+        description="Maximum number of periods",  # TODO
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
     )
 
 
@@ -199,9 +214,8 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         self._is_fitted = False
 
         self._device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.logger.info("Use " + self._device)
 
-        self.logger.info("Loaded weights file")
-        # self._esrnn = ESRNN(logger=self.logger)
         self._esrnn = ESRNN(
             max_epochs=hyperparams['max_epochs'],
             batch_size=hyperparams['batch_size'],
