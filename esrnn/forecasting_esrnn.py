@@ -104,14 +104,14 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
         lower=1,
         upper=10000,
         description="The batch size for RNN training",
-        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter" ]
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
     )
     seasonality = hyperparams.UniformInt(
         default=4,
         lower=4,
         upper=13,
         description="main frequency of the time series. Quarterly 4, Daily 7, Monthly 12",
-        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter" ]
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
     )
     frequency = hyperparams.Enumeration(
         default="D",
@@ -126,14 +126,14 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
         lower=1,
         upper=10000,
         description="input size of the recursive neural network, usually a multiple of seasonality",
-        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter" ]
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
     )
     output_size = hyperparams.UniformInt(
         default=60,
         lower=1,
         upper=10000,
         description="output_size or forecast horizon of the recursive neura network, usually multiple of seasonality",
-        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter" ]
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
     )
     exogenous_size = hyperparams.UniformInt(
         default=60,
@@ -172,6 +172,15 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
         upper=sys.maxsize,
         description="Maximum number of periods",  # TODO
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
+    )
+    device = hyperparams.Enumeration(
+        default="cpu",
+        semantic_types=[
+            "https://metadata.datadrivendiscovery.org/types/ControlParameter"
+        ],
+        values=["cpu", "cuda"],
+        description="To force running in CPU mode on a GPU server, use cpu. It fallbacks to CPU if GPU is not "
+                    "available, even if cuda is specified",
     )
 
 
@@ -214,6 +223,9 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         self._is_fitted = False
 
         self._device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        if hyperparams['device'] == 'cpu':
+            self._device = 'cpu'
+        print("Use " + self._device)
         self.logger.info("Use " + self._device)
 
         self._esrnn = ESRNN(
