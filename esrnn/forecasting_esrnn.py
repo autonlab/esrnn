@@ -426,8 +426,8 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         X_test = concat[['unique_id', 'ds']]
 
         predictions = self._esrnn.predict(X_test)
-        predictions = predictions['y_hat']
-        output = container.DataFrame(predictions, generate_metadata=True)
+        predictions['y_hat'] = self._fillna(predictions['y_hat'])
+        output = container.DataFrame(predictions['y_hat'], generate_metadata=True)
         return base.CallResult(output)
 
     def set_params(self, *, params: Params) -> None:
@@ -488,3 +488,10 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         df_dates = pd.concat(df_list).reset_index(drop=True).drop('key', axis=1)[['unique_id', 'ds', 'y']]
 
         return df_dates
+
+    def _fillna(self, series):
+        if series.isnull().any():
+            # self.logger.warning("The prediction contains NAN. Fill with mean of training data. You may want to "
+            #                     "increase output_size.")
+            return series.fillna(self._data['y'].mean())
+        return series
