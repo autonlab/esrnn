@@ -196,7 +196,7 @@ class ESRNN(object):
     y_df = y_df[y_df['unique_id'].isin(ids)].reset_index(drop=True)
     return X_df, y_df
 
-  def fit(self, X_df, y_df, shuffle=True, verbose=True):
+  def fit(self, X_df, y_df, shuffle=True, verbose=False):
     # Transform long dfs to wide numpy
     assert type(X_df) == pd.core.frame.DataFrame
     assert type(y_df) == pd.core.frame.DataFrame
