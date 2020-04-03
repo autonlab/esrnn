@@ -10,11 +10,11 @@ class Batch():
 
     # y: time series values
     n = len(y)
-    y = np.float32(y)        
-    self.idxs = idxs
+    y = np.float32(y)
+    self.idxs = torch.LongTensor(idxs).to(device)
     self.y = y
     if (self.y.shape[1] > mc.max_series_length):
-        self.y = y[:, -mc.max_series_length:]
+        y = y[:, -mc.max_series_length:]
     self.y = torch.tensor(y).float()
 
     # last_ds: last time for prediction purposes
@@ -53,8 +53,15 @@ class Iterator(object):
     Iterator method get_batch() returns a batch of time
     series objects defined by the Batch class.
   """
-  def __init__(self, mc, X, y):
-    self.X, self.y = X, y
+  def __init__(self, mc, X, y, weights=None):
+    if weights is not None:
+      assert len(weights)==len(X)
+      train_ids = np.where(weights==1)[0]
+      self.X = X[train_ids,:]
+      self.y = y[train_ids,:]
+    else:
+      self.X = X
+      self.y = y
     assert len(X)==len(y)
     
     # Parse Model config
@@ -64,13 +71,20 @@ class Iterator(object):
     self.unique_idxs = np.unique(self.X[:, 0])
     assert len(self.unique_idxs)==len(self.X)
     self.n_series = len(self.unique_idxs)
-    
+
+    #assert self.batch_size <= self.n_series
+
     # Initialize batch iterator
     self.b = 0
-    self.n_batches = int(self.n_series / self.batch_size)
+    self.n_batches = int(np.ceil(self.n_series / self.batch_size))
     shuffle = list(range(self.n_series))
     self.sort_key = {'unique_id': [self.unique_idxs[i] for i in shuffle],
                      'sort_key': shuffle}
+
+  def update_batch_size(self, new_batch_size):
+    self.batch_size = new_batch_size
+    assert self.batch_size <= self.n_series
+    self.n_batches = int(np.ceil(self.n_series / self.batch_size))
 
   def shuffle_dataset(self, random_seed=1):
     """Return the examples in the dataset in order, or shuffled."""
@@ -84,7 +98,7 @@ class Iterator(object):
     old_sort_key = self.sort_key['sort_key']
     old_unique_idxs = self.sort_key['unique_id']
     self.sort_key = {'unique_id': [old_unique_idxs[i] for i in shuffle],
-                'sort_key': [old_sort_key[i] for i in shuffle]}
+                     'sort_key': [old_sort_key[i] for i in shuffle]}
 
   def get_trim_batch(self, unique_id):
     if unique_id==None:

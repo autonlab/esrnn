@@ -46,6 +46,11 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
         default=1e-3,
         description='Size of the stochastic gradient descent steps'
     )
+    lr_decay = hyperparams.Hyperparameter[float](
+        semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
+        default=0.9,
+        description=''
+    )
     lr_scheduler_step_size = hyperparams.UniformInt(
         default=9,
         lower=1,
@@ -55,7 +60,7 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
     )
     per_series_lr_multip = hyperparams.Hyperparameter[float](
         semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
-        default=1.5,
+        default=1.0,
         description='Multiplier for per-series parameters smoothing and initial seasonalities learning rate'
     )
     gradient_eps = hyperparams.Hyperparameter[float](
@@ -81,16 +86,9 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
     )
     level_variability_penalty = hyperparams.Hyperparameter[float](
         semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
-        default=100,
+        default=80,
         description='this parameter controls the strength of the penalization to the wigglines of the level vector, '
                     'induces smoothness in the output '
-    )
-    percentile = hyperparams.Hyperparameter[float](
-        semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
-        default=50,
-        description='This value is only for diagnostic evaluation. In case of percentile predictions this parameter '
-                    'controls for the value predicted, when forecasting point value, the forecast is the median, '
-                    'so percentile=50. '
     )
     training_percentile = hyperparams.Hyperparameter[float](
         semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
@@ -106,9 +104,16 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
         description="The batch size for RNN training",
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
     )
+    batch_size_test = hyperparams.UniformInt(
+        default=64,
+        lower=1,
+        upper=10000,
+        description="The batch size for RNN test",
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
+    )
     seasonality = hyperparams.UniformInt(
-        default=4,
-        lower=4,
+        default=1,
+        lower=1,
         upper=13,
         description="main frequency of the time series. Quarterly 4, Daily 7, Monthly 12",
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
@@ -122,7 +127,7 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
         description="A number of string aliases are given to useful common time series frequencies. See https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#timeseries-offset-aliases for a list of frequency aliases",
     )
     input_size = hyperparams.UniformInt(
-        default=30,
+        default=4,
         lower=1,
         upper=10000,
         description="input size of the recursive neural network, usually a multiple of seasonality",
@@ -142,15 +147,23 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
         description="size of one hot encoded categorical variable, invariannt per time series of the panel",
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter", ]
     )
+    cell_type = hyperparams.Enumeration(
+        default="LSTM",
+        semantic_types=[
+            "https://metadata.datadrivendiscovery.org/types/ControlParameter"
+        ],
+        values=["LSTM", "GRU", "RNN", "ResLSTM", "AttentiveLSTM"],
+        description="Type of RNN cell, available GRU, LSTM, RNN, ResidualLSTM",
+    )
     state_hsize = hyperparams.UniformInt(
-        default=60,
+        default=40,
         lower=1,
         upper=10000,
         description="dimension of hidden state of the recursive neural network",
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter", ]
     )
     add_nl_layer = hyperparams.UniformBool(
-        default=True,
+        default=False,
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"],
         description="whether to insert a tanh() layer between the RNN stack and the linear adaptor (output) layers",
     )
@@ -224,25 +237,29 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         self._esrnn = ESRNN(
             max_epochs=hyperparams['max_epochs'],
             batch_size=hyperparams['batch_size'],
+            batch_size_test=hyperparams['batch_size_test'],
             data_augmentation=hyperparams['data_augmentation'],
             learning_rate=hyperparams['learning_rate'],
             lr_scheduler_step_size=hyperparams['lr_scheduler_step_size'],
+            lr_decay=hyperparams['lr_decay'],
             per_series_lr_multip=hyperparams['per_series_lr_multip'],
             gradient_eps=hyperparams['gradient_eps'],
             gradient_clipping_threshold=hyperparams['gradient_clipping_threshold'],
             rnn_weight_decay=hyperparams['rnn_weight_decay'],
             noise_std=hyperparams['noise_std'],
             level_variability_penalty=hyperparams['level_variability_penalty'],
-            percentile=hyperparams['percentile'],
             training_percentile=hyperparams['training_percentile'],
+            cell_type=hyperparams['cell_type'],
             state_hsize=hyperparams['state_hsize'],
             dilations=[[1, 7], [28]],
             add_nl_layer=hyperparams['add_nl_layer'],
-            seasonality=hyperparams['seasonality'],
+            # seasonality=[hyperparams['seasonality']],
+            seasonality=[],  # TODO get from the hyperparams['seasonality']
             input_size=hyperparams['input_size'],
             output_size=hyperparams['output_size'],
             frequency=hyperparams['frequency'],
             max_periods=hyperparams['max_periods'],
+            random_seed=random_seed,
             device=self._device
         )
         self._data = None
@@ -343,39 +360,27 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
             # TODO
             pass
         else:
-            # create a column for year
-            year_column = 'year'
-            count = 0
-            while year_column in data.columns:
-                year_column = 'year_' + str(count)
-                count += count
-
-            # create year column and add it to the grouping_keys
-            data[year_column] = data[self._time_column].dt.year
-            self._year_column = year_column
-            self.filter_idxs.append(year_column)
-
             # concatenate columns in `grouping_keys` to unique_id column
-            concat = data.loc[:, self.filter_idxs].apply(lambda x: '-'.join([str(v) for v in x]), axis=1)
+            concat = data.loc[:, self.filter_idxs].apply(lambda x: ' '.join([str(v) for v in x]), axis=1)
             concat = pd.concat([concat,
-                                data[year_column].astype(str),
                                 data[self._time_column],
                                 data[self.target_column]],
                                axis=1)
-            concat.columns = ['unique_id', 'x', 'ds', 'y']
+            concat.columns = ['unique_id', 'ds', 'y']
 
             # Series must be complete in the frequency
             concat = ForecastingESRNNPrimitive._ffill_missing_dates_per_serie(concat, 'D')
 
             # remove duplicates
-            concat = concat[~ concat[['unique_id', 'ds']].duplicated()]
+            concat = concat.drop_duplicates(['unique_id', 'ds'])
 
             self._data = concat
 
     def fit(self, *, timeout: float = None, iterations: int = None) -> CallResult[None]:
-        X_train = self._data[['unique_id', 'ds', 'x']]
+        X_train = self._data[['unique_id', 'ds']]
+        X_train['x'] = '1'
         y_train = self._data[['unique_id', 'ds', 'y']]
-        self._esrnn.fit(X_train, y_train, self.random_seed)
+        self._esrnn.fit(X_train, y_train)
         self._is_fitted = True
 
         return base.CallResult(None)
@@ -413,11 +418,8 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
             # TODO
             pass
         else:
-            # create year column and add it to the grouping_keys
-            inputs_copy[self._year_column] = inputs_copy[self._time_column].dt.year
-
             # concatenate columns in `grouping_keys` to unique_id column
-            concat = inputs_copy.loc[:, self.filter_idxs].apply(lambda x: '-'.join([str(v) for v in x]), axis=1)
+            concat = inputs_copy.loc[:, self.filter_idxs].apply(lambda x: ' '.join([str(v) for v in x]), axis=1)
             concat = pd.concat([concat, inputs_copy[self._time_column]], axis=1)
             concat.columns = ['unique_id', 'ds']
 
@@ -446,7 +448,6 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         df_balanced = df_balanced.merge(serie, how="left", on=['unique_id', 'ds'])
 
         df_balanced['y'] = df_balanced['y'].fillna(method='ffill')
-        df_balanced['x'] = df_balanced['x'].fillna(method='ffill')
 
         return df_balanced
 
@@ -484,6 +485,6 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
                                                                                     row['max_date'], freq)
             df_list.append(df_id)
 
-        df_dates = pd.concat(df_list).reset_index(drop=True).drop('key', axis=1)[['unique_id', 'ds', 'y', 'x']]
+        df_dates = pd.concat(df_list).reset_index(drop=True).drop('key', axis=1)[['unique_id', 'ds', 'y']]
 
         return df_dates

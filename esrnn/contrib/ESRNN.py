@@ -28,12 +28,13 @@ class ESRNN(object):
   ----------
   max_epochs: int
     maximum number of complete passes to train data during fit
-  freq_of_test: int
-    period for the diagnostic evaluation of the model.
   learning_rate: float
     size of the stochastic gradient descent steps
   lr_scheduler_step_size: int
     this step_size is the period for each learning rate decay
+  data_augmentation: bool
+    performs data augmentation, in which unique_id is concatenated
+    with the year in ds column to increase number of series
   per_series_lr_multip: float
     multiplier for per-series parameters smoothing and initial
     seasonalities learning rate (default 1.0)
@@ -53,31 +54,35 @@ class ESRNN(object):
     this parameter controls the strength of the penalization
     to the wigglines of the level vector, induces smoothness
     in the output
-  percentile: float
-    This value is only for diagnostic evaluation.
-    In case of percentile predictions this parameter controls
-    for the value predicted, when forecasting point value,
-    the forecast is the median, so percentile=50.
   training_percentile: float
     To reduce the model's tendency to over estimate, the
     training_percentile can be set to fit a smaller value
     through the Pinball Loss.
   batch_size: int
     number of training examples for the stochastic gradient steps
-  seasonality: int
-    main frequency of the time series
-    Quarterly 4, Daily 7, Monthly 12
+  seasonality: int list
+    list of seasonalities of the time series
+    Hourly [24, 168], Daily [7], Weekly [52], Monthly [12],
+    Quarterly [4], Yearly [].
   input_size: int
     input size of the recursive neural network, usually a
     multiple of seasonality
   output_size: int
     output_size or forecast horizon of the recursive neural
     network, usually multiple of seasonality
+  random_seed: int
+    random_seed for pseudo random pytorch initializer and
+    numpy random generator
   exogenous_size: int
     size of one hot encoded categorical variable, invariannt
     per time series of the panel
   min_inp_seq_length: int
     description
+  max_periods: int
+    Parameter to chop longer series, to last max_periods,
+    max e.g. 40 years
+  cell_type: str
+    Type of RNN cell, available GRU, LSTM, RNN, ResidualLSTM.
   state_hsize: int
     dimension of hidden state of the recursive neural network
   dilations: int list
@@ -96,112 +101,94 @@ class ESRNN(object):
   `Original Dynet Implementation of ESRNN
   <https://github.com/M4Competition/M4-methods/tree/master/118%20-%20slaweks17>`__
   """
-  def __init__(self, max_epochs=15, batch_size=1, data_augmentation=False,
-               learning_rate=1e-3, lr_scheduler_step_size=9,
-               per_series_lr_multip=1.5, gradient_eps=1e-8, gradient_clipping_threshold=20,
-               rnn_weight_decay=0, noise_std=0.001,
-               level_variability_penalty=100,
-               percentile=50, training_percentile=50,
-               state_hsize=40, dilations=[[1, 7], [28]],
-               add_nl_layer=True, seasonality=7, input_size=7, output_size=28, frequency='D', max_periods=20,
+  def __init__(self, max_epochs=15, batch_size=1, batch_size_test=64,
+               learning_rate=1e-3, lr_scheduler_step_size=9, lr_decay=0.9, data_augmentation=False,
+               per_series_lr_multip=1.0, gradient_eps=1e-8, gradient_clipping_threshold=20,
+               rnn_weight_decay=0, noise_std=0.001, level_variability_penalty=80,
+               training_percentile=50, cell_type='LSTM',
+               state_hsize=40, dilations=[[1, 2], [4, 8]],
+               add_nl_layer=False, seasonality=[4], input_size=4, output_size=8,
+               frequency='D', max_periods=20, random_seed=1,
                device='cpu', root_dir='./'):
     super(ESRNN, self).__init__()
-    self.mc = ModelConfig(max_epochs=max_epochs, batch_size=batch_size, data_augmentation=data_augmentation,
-                          learning_rate=learning_rate, lr_scheduler_step_size=lr_scheduler_step_size,
-                          per_series_lr_multip=per_series_lr_multip,
+    self.mc = ModelConfig(max_epochs=max_epochs, batch_size=batch_size, batch_size_test=batch_size_test,
+                          learning_rate=learning_rate, lr_scheduler_step_size=lr_scheduler_step_size, lr_decay=lr_decay,
+                          data_augmentation=data_augmentation, per_series_lr_multip=per_series_lr_multip,
                           gradient_eps=gradient_eps, gradient_clipping_threshold=gradient_clipping_threshold,
                           rnn_weight_decay=rnn_weight_decay, noise_std=noise_std,
-                          level_variability_penalty=level_variability_penalty,
-                          percentile=percentile,
-                          training_percentile=training_percentile,
+                          level_variability_penalty=level_variability_penalty, training_percentile=training_percentile,
+                          cell_type=cell_type,
                           state_hsize=state_hsize, dilations=dilations, add_nl_layer=add_nl_layer,
                           seasonality=seasonality, input_size=input_size, output_size=output_size,
-                          frequency=frequency, max_periods=max_periods, device=device, root_dir=root_dir)
+                          frequency=frequency, max_periods=max_periods, random_seed=random_seed,
+                          device=device, root_dir=root_dir)
+    self._fitted = False
 
-  def train(self, dataloader, random_seed):
-    # print(10*'='+' Training ESRNN ' + 10*'=' + '\n')
+  def train(self, dataloader, max_epochs, shuffle=True, verbose=True):
+
+    if verbose:
+        print(15*'='+' Training ESRNN  ' + 15*'=' + '\n')
 
     # Optimizers
-    es_optimizer = optim.Adam(params=self.esrnn.es.parameters(),
-                              lr=self.mc.learning_rate*self.mc.per_series_lr_multip, 
+    self.es_optimizer = optim.Adam(params=self.esrnn.es.parameters(),
+                              lr=self.mc.learning_rate*self.mc.per_series_lr_multip,
                               betas=(0.9, 0.999), eps=self.mc.gradient_eps)
 
-    es_scheduler = StepLR(optimizer=es_optimizer,
+    self.es_scheduler = StepLR(optimizer=self.es_optimizer,
                           step_size=self.mc.lr_scheduler_step_size,
                           gamma=0.9)
 
-    rnn_optimizer = optim.Adam(params=self.esrnn.rnn.parameters(),
-                               lr=self.mc.learning_rate,
-                               betas=(0.9, 0.999), eps=self.mc.gradient_eps,
-                               weight_decay=self.mc.rnn_weight_decay)
+    self.rnn_optimizer = optim.Adam(params=self.esrnn.rnn.parameters(),
+                              lr=self.mc.learning_rate,
+                              betas=(0.9, 0.999), eps=self.mc.gradient_eps,
+                              weight_decay=self.mc.rnn_weight_decay)
 
-    rnn_scheduler = StepLR(optimizer=rnn_optimizer,
-                           step_size=self.mc.lr_scheduler_step_size,
-                           gamma=0.9)
-    
+    self.rnn_scheduler = StepLR(optimizer=self.rnn_optimizer,
+                          step_size=self.mc.lr_scheduler_step_size,
+                          gamma=self.mc.lr_decay)
+
     # Loss Functions
     train_tau = self.mc.training_percentile / 100
     train_loss = SmylLoss(tau=train_tau, level_variability_penalty=self.mc.level_variability_penalty)
 
-    eval_tau = self.mc.percentile / 100
-    eval_loss = PinballLoss(tau=eval_tau)
-
-    for epoch in range(self.mc.max_epochs):
+    for epoch in range(max_epochs):
+      self.esrnn.train()
       start = time.time()
-      if self.shuffle:
+      if shuffle:
         dataloader.shuffle_dataset(random_seed=epoch)
       losses = []
       for j in range(dataloader.n_batches):
-        es_optimizer.zero_grad()
-        rnn_optimizer.zero_grad()
+        self.es_optimizer.zero_grad()
+        self.rnn_optimizer.zero_grad()
 
         batch = dataloader.get_batch()
         windows_y, windows_y_hat, levels = self.esrnn(batch)
-        
+
         # Pinball loss on normalized values
         loss = train_loss(windows_y, windows_y_hat, levels)
         losses.append(loss.data.cpu().numpy())
+
         loss.backward()
 
         torch.nn.utils.clip_grad_norm_(self.esrnn.rnn.parameters(), self.mc.gradient_clipping_threshold)
         torch.nn.utils.clip_grad_norm_(self.esrnn.es.parameters(), self.mc.gradient_clipping_threshold)
-        rnn_optimizer.step()
-        es_optimizer.step()
+        self.rnn_optimizer.step()
+        self.es_optimizer.step()
 
       # Decay learning rate
-      es_scheduler.step()
-      rnn_scheduler.step()
+      self.es_scheduler.step()
+      self.rnn_scheduler.step()
 
       # Evaluation
       self.train_loss = np.mean(losses)
-      # print("========= Epoch {} finished =========".format(epoch))
-      # print("Training time: {}".format(round(time.time()-start, 5)))
-      # print("Training loss: {}".format(round(self.train_loss, 5)))
+      if verbose:
+        print("========= Epoch {} finished =========".format(epoch))
+        print("Training time: {}".format(round(time.time()-start, 5)))
+        print("Training loss ({} prc): {:.5f}".format(self.mc.training_percentile,
+                                                      self.train_loss))
 
-    # print('Train finished! \n')
+    if verbose: print('Train finished! \n')
 
-  def evaluation(self, dataloader, criterion):
-      """
-      Evaluate the model against data
-      Args:
-        mc: model parameters
-        model: the trained model
-        dataloader: a data loader
-        criterion: loss to evaluate
-      """
-      losses = 0.0
-      n_series = 0
-      with torch.no_grad():
-        for j in range(dataloader.n_batches):
-          batch = dataloader.get_batch()
-          windows_y, windows_y_hat, _ = self.esrnn(batch)
-          loss = criterion(windows_y, windows_y_hat)
-          losses += loss.data.cpu().numpy()
-          n_series += len(batch.idxs)
-
-      losses /= n_series
-      return losses
-  
   def get_trainable_df(self, X_df, y_df):
     unique_counts = X_df.groupby('unique_id').count().reset_index()[['unique_id','ds']]
     ids = unique_counts[unique_counts['ds'] >= self.mc.min_series_length]['unique_id'].unique()
@@ -209,15 +196,12 @@ class ESRNN(object):
     y_df = y_df[y_df['unique_id'].isin(ids)].reset_index(drop=True)
     return X_df, y_df
 
-  def fit(self, X_df, y_df, shuffle=True, random_seed=1):
+  def fit(self, X_df, y_df, shuffle=True, verbose=True):
     # Transform long dfs to wide numpy
     assert type(X_df) == pd.core.frame.DataFrame
     assert type(y_df) == pd.core.frame.DataFrame
     assert all([(col in X_df) for col in ['unique_id', 'ds', 'x']])
     assert all([(col in y_df) for col in ['unique_id', 'ds', 'y']])
-
-    X_df = X_df.copy()
-    y_df = y_df.copy()
 
     if self.mc.data_augmentation:
       X_df['unique_id'] = X_df['unique_id'] + "_" + X_df['ds'].dt.year.astype(str)
@@ -232,24 +216,30 @@ class ESRNN(object):
     # Exogenous variables
     unique_categories = np.unique(X[:, 1])
     self.mc.category_to_idx = dict((word, index) for index, word in enumerate(unique_categories))
-    self.mc.exogenous_size = len(unique_categories)
+    exogenous_size = len(unique_categories)
 
     # Create batches (device in mc)
-    self.dataloader = Iterator(mc=self.mc, X=X, y=y)
-    self.shuffle = shuffle
+    self.train_dataloader = Iterator(mc=self.mc, X=X, y=y)
 
     # Random Seeds (model initialization)
-    torch.manual_seed(random_seed)
-    np.random.seed(random_seed)
+    torch.manual_seed(self.mc.random_seed)
+    np.random.seed(self.mc.random_seed)
 
     # Initialize model
-    self.mc.n_series = self.dataloader.n_series
-    self.esrnn = _ESRNN(self.mc).to(self.mc.device)
+    n_series = self.train_dataloader.n_series
+    self.instantiate_esrnn(exogenous_size, n_series)
 
     # Train model
-    self.train(dataloader=self.dataloader, random_seed=random_seed)
+    self._fitted = True
+    self.train(dataloader=self.train_dataloader, max_epochs=self.mc.max_epochs,
+               shuffle=shuffle, verbose=verbose)
 
-  def predict(self, X_df, decomposition=False):
+  def instantiate_esrnn(self, exogenous_size, n_series):
+    self.mc.exogenous_size = exogenous_size
+    self.mc.n_series = n_series
+    self.esrnn = _ESRNN(self.mc).to(self.mc.device)
+
+  def predict(self, X_df):
     X_df = X_df.copy()
     """
         Predictions for all stored time series
@@ -281,30 +271,22 @@ class ESRNN(object):
 
     for unique_id in predict_unique_idxs:
       # Corresponding train batch
-      if unique_id in self.dataloader.sort_key['unique_id']:
-        batch = self.dataloader.get_batch(unique_id=unique_id)
+      if unique_id in self.train_dataloader.sort_key['unique_id']:
+        batch = self.train_dataloader.get_batch(unique_id=unique_id)
 
         # Prediction
-        if decomposition:
-          Y_hat_id = pd.DataFrame(np.zeros(shape=(self.mc.output_size, 4)), columns=["y_hat", "trend", "seasonalities", "level"])
-          y_hat, trends, seasonalities, level = self.esrnn.predict(batch)
-        else:
-          Y_hat_id = pd.DataFrame(np.zeros(shape=(self.mc.output_size, 1)), columns=["y_hat"])
-          y_hat, _, _, _ = self.esrnn.predict(batch)
+        Y_hat_id = pd.DataFrame(np.zeros(shape=(self.mc.output_size, 1)), columns=["y_hat"])
+        y_hat = self.esrnn.predict(batch)
+        y_hat = y_hat.data.cpu().numpy()
 
         y_hat = y_hat.squeeze()
         Y_hat_id.iloc[:, 0] = y_hat
 
         # Serie prediction
         Y_hat_id["unique_id"] = unique_id
-        ts = date_range = pd.date_range(start=batch.last_ds[0],
+        ts = pd.date_range(start=batch.last_ds[0],
                                         periods=self.mc.output_size+1, freq=self.mc.frequency)
         Y_hat_id["ds"] = ts[1:]
-
-        if decomposition:
-          Y_hat_id["trend"] = trends.squeeze()
-          Y_hat_id["seasonalities"] = seasonalities.squeeze()
-          Y_hat_id["level"] = level.squeeze()
 
         Y_hat_panel = Y_hat_panel.append(Y_hat_id, sort=False).reset_index(drop=True)
       else:
@@ -324,9 +306,10 @@ class ESRNN(object):
       Y_hat_panel = Y_hat_panel.replace({'unique_id':unique_id_mapping})
 
     return Y_hat_panel
-  
-  def long_to_wide(self, data, y_df):
-    data['y'] = y_df['y']
+
+  def long_to_wide(self, X_df, y_df):
+    data = X_df.copy()
+    data['y'] = y_df['y'].copy()
     sorted_ds = np.sort(data['ds'].unique())
     ds_map = {}
     for dmap, t in enumerate(sorted_ds):
@@ -334,19 +317,18 @@ class ESRNN(object):
     data['ds_map'] = data['ds'].map(ds_map)
     data = data.sort_values(by=['ds_map','unique_id'])
     df_wide = data.pivot(index='unique_id', columns='ds_map')['y']
-    
+
     x_unique = data[['unique_id', 'x']].groupby('unique_id').first()
     last_ds =  data[['unique_id', 'ds']].groupby('unique_id').last()
     assert len(x_unique)==len(data.unique_id.unique())
     df_wide['x'] = x_unique
     df_wide['last_ds'] = last_ds
     df_wide = df_wide.reset_index().rename_axis(None, axis=1)
-    
+
     ds_cols = data.ds_map.unique().tolist()
     X = df_wide.filter(items=['unique_id', 'x', 'last_ds']).values
     y = df_wide.filter(items=ds_cols).values
 
-    # TODO: assert "completeness" of the series (frequency-wise)
     return X, y
 
   def get_dir_name(self, root_dir=None):
@@ -361,46 +343,3 @@ class ESRNN(object):
                     str(self.mc.copy)]
     model_dir = os.path.join(model_parent_dir, '_'.join(model_path))
     return model_dir
-
-  def save(self, model_dir=None, copy=None):
-    if copy is not None:
-        self.mc.copy = copy
-
-    if not model_dir:
-      assert self.mc.root_dir
-      model_dir = self.get_dir_name()
-
-    if not os.path.exists(model_dir):
-      os.makedirs(model_dir)
-
-    rnn_filepath = os.path.join(model_dir, "rnn.model")
-    es_filepath = os.path.join(model_dir, "es.model")
-
-    print('Saving model to:\n {}'.format(model_dir)+'\n')
-    torch.save({'model_state_dict': self.es.state_dict()}, es_filepath)
-    torch.save({'model_state_dict': self.rnn.state_dict()}, rnn_filepath)
-
-  def load(self, model_dir=None, copy=None):
-    if copy is not None:
-      self.mc.copy = copy
-
-    if not model_dir:
-      assert self.mc.root_dir
-      model_dir = self.get_dir_name()
-
-    rnn_filepath = os.path.join(model_dir, "rnn.model")
-    es_filepath = os.path.join(model_dir, "es.model")
-    path = Path(es_filepath)
-
-    if path.is_file():
-      print('Loading model from:\n {}'.format(model_dir)+'\n')
-
-      checkpoint = torch.load(es_filepath, map_location=self.mc.device)
-      self.es.load_state_dict(checkpoint['model_state_dict'])
-      self.es.to(self.mc.device)
-      
-      checkpoint = torch.load(rnn_filepath, map_location=self.mc.device)
-      self.rnn.load_state_dict(checkpoint['model_state_dict'])
-      self.rnn.to(self.mc.device)
-    else:
-      print('Model path {} does not exist'.format(path))

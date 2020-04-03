@@ -1,10 +1,143 @@
-# lovingly borrowed from https://github.com/zalandoresearch/pytorch-dilated-rnn
+# Dilated Recurrent Neural Networks. https://papers.nips.cc/paper/6613-dilated-recurrent-neural-networks.pdf
+# implementation from https://github.com/zalandoresearch/pytorch-dilated-rnn
+# Residual LSTM: Design of a Deep Recurrent Architecture for Distant Speech Recognition. https://arxiv.org/abs/1701.03360
+# A Dual-Stage Attention-Based recurrent neural network for time series prediction. https://arxiv.org/abs/1704.02971
 
 import torch
 import torch.nn as nn
 import torch.autograd as autograd
 
 use_cuda = torch.cuda.is_available()
+
+
+class LSTMCell(nn.Module): #jit.ScriptModule
+    def __init__(self, input_size, hidden_size, dropout=0.):
+        super(LSTMCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.weight_ih = nn.Parameter(torch.randn(4 * hidden_size, input_size))
+        self.weight_hh = nn.Parameter(torch.randn(4 * hidden_size, hidden_size))
+        self.bias_ih = nn.Parameter(torch.randn(4 * hidden_size))
+        self.bias_hh = nn.Parameter(torch.randn(4 * hidden_size))
+        self.dropout = dropout
+
+    #@jit.script_method
+    def forward(self, input, hidden):
+        # type: (Tensor, Tuple[Tensor, Tensor]) -> Tuple[Tensor, Tuple[Tensor, Tensor]]
+        hx, cx = hidden[0].squeeze(0), hidden[1].squeeze(0)
+        gates = (torch.matmul(input, self.weight_ih.t()) + self.bias_ih +
+                 torch.matmul(hx, self.weight_hh.t()) + self.bias_hh)
+        ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
+
+        ingate = torch.sigmoid(ingate)
+        forgetgate = torch.sigmoid(forgetgate)
+        cellgate = torch.tanh(cellgate)
+        outgate = torch.sigmoid(outgate)
+
+        cy = (forgetgate * cx) + (ingate * cellgate)
+        hy = outgate * torch.tanh(cy)
+
+        return hy, (hy, cy)
+
+
+class ResLSTMCell(nn.Module):
+    def __init__(self, input_size, hidden_size, dropout=0.):
+        super(ResLSTMCell, self).__init__()
+        self.register_buffer('input_size', torch.Tensor([input_size]))
+        self.register_buffer('hidden_size', torch.Tensor([hidden_size]))
+        self.weight_ii = nn.Parameter(torch.randn(3 * hidden_size, input_size))
+        self.weight_ic = nn.Parameter(torch.randn(3 * hidden_size, hidden_size))
+        self.weight_ih = nn.Parameter(torch.randn(3 * hidden_size, hidden_size))
+        self.bias_ii = nn.Parameter(torch.randn(3 * hidden_size))
+        self.bias_ic = nn.Parameter(torch.randn(3 * hidden_size))
+        self.bias_ih = nn.Parameter(torch.randn(3 * hidden_size))
+        self.weight_hh = nn.Parameter(torch.randn(1 * hidden_size, hidden_size))
+        self.bias_hh = nn.Parameter(torch.randn(1 * hidden_size))
+        self.weight_ir = nn.Parameter(torch.randn(hidden_size, input_size))
+        self.dropout = dropout
+
+    #@jit.script_method
+    def forward(self, input, hidden):
+        # type: (Tensor, Tuple[Tensor, Tensor]) -> Tuple[Tensor, Tuple[Tensor, Tensor]]
+        hx, cx = hidden[0].squeeze(0), hidden[1].squeeze(0)
+
+        ifo_gates = (torch.matmul(input, self.weight_ii.t()) + self.bias_ii +
+                     torch.matmul(hx, self.weight_ih.t()) + self.bias_ih +
+                     torch.matmul(cx, self.weight_ic.t()) + self.bias_ic)
+        ingate, forgetgate, outgate = ifo_gates.chunk(3, 1)
+
+        cellgate = torch.matmul(hx, self.weight_hh.t()) + self.bias_hh
+
+        ingate = torch.sigmoid(ingate)
+        forgetgate = torch.sigmoid(forgetgate)
+        cellgate = torch.tanh(cellgate)
+        outgate = torch.sigmoid(outgate)
+
+        cy = (forgetgate * cx) + (ingate * cellgate)
+        ry = torch.tanh(cy)
+
+        if self.input_size == self.hidden_size:
+          hy = outgate * (ry + input)
+        else:
+          hy = outgate * (ry + torch.matmul(input, self.weight_ir.t()))
+        return hy, (hy, cy)
+
+
+class ResLSTMLayer(nn.Module):
+    def __init__(self, input_size, hidden_size, dropout=0.):
+        super(ResLSTMLayer, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.cell = ResLSTMCell(input_size, hidden_size, dropout=0.)
+
+    #@jit.script_method
+    def forward(self, input, hidden):
+        # type: (Tensor, Tuple[Tensor, Tensor]) -> Tuple[Tensor, Tuple[Tensor, Tensor]]
+        inputs = input.unbind(0)
+        #outputs = torch.jit.annotate(List[Tensor], [])
+        outputs = []
+        for i in range(len(inputs)):
+            out, hidden = self.cell(inputs[i], hidden)
+            outputs += [out]
+        outputs = torch.stack(outputs)
+        return outputs, hidden
+
+
+class AttentiveLSTMLayer(nn.Module):
+    def __init__(self, input_size, hidden_size, dropout=0.0):
+      super(AttentiveLSTMLayer, self).__init__()
+      self.input_size = input_size
+      self.hidden_size = hidden_size
+      attention_hsize = hidden_size
+      self.attention_hsize = attention_hsize
+
+      self.cell = LSTMCell(input_size, hidden_size)
+      self.attn_layer = nn.Sequential(nn.Linear(2 * hidden_size + input_size, attention_hsize),
+                                      nn.Tanh(),
+                                      nn.Linear(attention_hsize, 1))
+      self.softmax = nn.Softmax(dim=0)
+      self.dropout = dropout
+
+    #@jit.script_method
+    def forward(self, input, hidden):
+      inputs = input.unbind(0)
+      #outputs = torch.jit.annotate(List[Tensor], [])
+      outputs = []
+
+      for t in range(len(input)):
+          # attention on windows
+          hx, cx = hidden[0].squeeze(0), hidden[1].squeeze(0)
+          hx_rep = hx.repeat(len(inputs), 1, 1)
+          cx_rep = cx.repeat(len(inputs), 1, 1)
+          x = torch.cat((input, hx_rep, cx_rep), dim=-1)
+          l = self.attn_layer(x)
+          beta = self.softmax(l)
+          context = torch.bmm(beta.permute(1, 2, 0),
+                              input.permute(1, 0, 2)).squeeze(1)
+          out, hidden = self.cell(context, hidden)
+          outputs += [out]
+      outputs = torch.stack(outputs)
+      return outputs, hidden
 
 
 class DRNN(nn.Module):
@@ -24,6 +157,10 @@ class DRNN(nn.Module):
             cell = nn.RNN
         elif self.cell_type == "LSTM":
             cell = nn.LSTM
+        elif self.cell_type == "ResLSTM":
+            cell = ResLSTMLayer
+        elif self.cell_type == "AttentiveLSTM":
+            cell = AttentiveLSTMLayer
         else:
             raise NotImplementedError
 
@@ -74,13 +211,13 @@ class DRNN(nn.Module):
 
     def _apply_cell(self, dilated_inputs, cell, batch_size, rate, hidden_size, hidden=None):
         if hidden is None:
-            if self.cell_type == 'LSTM':
+            if self.cell_type == 'LSTM' or self.cell_type == 'ResLSTM' or self.cell_type == 'AttentiveLSTM':
                 c, m = self.init_hidden(batch_size * rate, hidden_size)
                 hidden = (c.unsqueeze(0), m.unsqueeze(0))
             else:
                 hidden = self.init_hidden(batch_size * rate, hidden_size).unsqueeze(0)
 
-        dilated_outputs, hidden = cell(dilated_inputs, hidden)
+        dilated_outputs, hidden = cell(dilated_inputs, hidden) # compatibility hack
 
         return dilated_outputs, hidden
 
@@ -124,7 +261,7 @@ class DRNN(nn.Module):
         hidden = autograd.Variable(torch.zeros(batch_size, hidden_dim))
         if use_cuda:
             hidden = hidden.cuda()
-        if self.cell_type == "LSTM":
+        if self.cell_type == "LSTM" or self.cell_type == 'ResLSTM' or self.cell_type == 'AttentiveLSTM':
             memory = autograd.Variable(torch.zeros(batch_size, hidden_dim))
             if use_cuda:
                 memory = memory.cuda()
@@ -134,13 +271,16 @@ class DRNN(nn.Module):
 
 
 if __name__ == '__main__':
-    n_inp = 10
-    n_hidden = 16
-    n_layers = 3
+    n_inp = 4
+    n_hidden = 4
+    n_layers = 2
+    batch_size = 3
+    n_windows = 2
+    cell_type = 'ResLSTM'
 
-    model = DRNN(n_inp, n_hidden, n_layers, cell_type='LSTM')
+    model = DRNN(n_inp, n_hidden, n_layers=n_layers, cell_type=cell_type, dilations=[1,2])
 
-    test_x1 = torch.autograd.Variable(torch.randn(26, 2, n_inp))
-    test_x2 = torch.autograd.Variable(torch.randn(26, 2, n_inp))
+    test_x1 = torch.autograd.Variable(torch.randn(n_windows, batch_size, n_inp))
+    test_x2 = torch.autograd.Variable(torch.randn(n_windows, batch_size, n_inp))
 
     out, hidden = model(test_x1)
