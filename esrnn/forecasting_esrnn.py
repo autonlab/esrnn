@@ -49,7 +49,7 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
     lr_decay = hyperparams.Hyperparameter[float](
         semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
         default=0.9,
-        description=''
+        description='The gamma parameter of the RNN scheduler to shrink the learning rate.'
     )
     lr_scheduler_step_size = hyperparams.UniformInt(
         default=9,
@@ -108,7 +108,9 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
         default=64,
         lower=1,
         upper=10000,
-        description="The batch size for RNN test",
+        description="The batch size for RNN test. We separated this parameter since this batch size can be "
+                    "considerably larger than the train batch. It only affects the time it takes to perform "
+                    "predictions",
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
     )
     seasonality = hyperparams.UniformInt(
