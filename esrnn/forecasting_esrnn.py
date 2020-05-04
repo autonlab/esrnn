@@ -419,8 +419,8 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         X_test = concat[['unique_id', 'ds']]
 
         predictions = self._esrnn.predict(X_test)
-        predictions['y_hat'] = self._fillna(predictions['y_hat'])
         predictions['y_hat'] -= self._constant
+        predictions['y_hat'] = self._fillna(predictions['y_hat'])
         output = container.DataFrame(predictions['y_hat'], generate_metadata=True)
         return base.CallResult(output)
 
