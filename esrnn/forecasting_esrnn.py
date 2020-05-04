@@ -164,6 +164,16 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
         description="dimension of hidden state of the recursive neural network",
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter", ]
     )
+    dilations = hyperparams.List(
+        elements=hyperparams.List(
+            elements=hyperparams.Hyperparameter[int](1),
+            default=[],
+        ),
+        semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
+        default=[[1, 7], [28]],
+        description='a list of list of ints, each list represents one chunk of Dilated LSTMS, connected in standard '
+                    'ResNet fashion'
+    )
     add_nl_layer = hyperparams.UniformBool(
         default=False,
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"],
@@ -242,7 +252,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
             training_percentile=hyperparams['training_percentile'],
             cell_type=hyperparams['cell_type'],
             state_hsize=hyperparams['state_hsize'],
-            dilations=[[1, 7], [28]],
+            dilations=hyperparams['dilations'],
             add_nl_layer=hyperparams['add_nl_layer'],
             # seasonality=[hyperparams['seasonality']],
             seasonality=[],  # TODO get from the hyperparams['seasonality']
