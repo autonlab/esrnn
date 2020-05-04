@@ -256,6 +256,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         self._data = None
         self._integer_time = False
         self._year_column = None
+        self._constant = 1  # the constant term to avoid nan
 
     def set_training_data(self, *, inputs: Inputs, outputs: Outputs) -> None:
         data = inputs.horizontal_concat(outputs)
@@ -371,6 +372,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         X_train = self._data[['unique_id', 'ds']]
         X_train['x'] = '1'
         y_train = self._data[['unique_id', 'ds', 'y']]
+        y_train['y'] += self._constant
         self._esrnn.fit(X_train, y_train)
         self._is_fitted = True
 
@@ -418,6 +420,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
 
         predictions = self._esrnn.predict(X_test)
         predictions['y_hat'] = self._fillna(predictions['y_hat'])
+        predictions['y_hat'] -= self._constant
         output = container.DataFrame(predictions['y_hat'], generate_metadata=True)
         return base.CallResult(output)
 
