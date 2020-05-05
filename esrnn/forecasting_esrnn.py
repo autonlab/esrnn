@@ -359,8 +359,9 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
 
         # check whether no grouping keys are labeled
         if len(grouping_keys) == 0:
-            # TODO
-            pass
+            concat = pd.concat([data[self._time_column], data[self.target_column]], axis=1)
+            concat.columns = ['ds', 'y']
+            concat['unique_id'] = 'series1'  # We have only one series
         else:
             # concatenate columns in `grouping_keys` to unique_id column
             concat = data.loc[:, self.filter_idxs].apply(lambda x: ' '.join([str(v) for v in x]), axis=1)
@@ -370,13 +371,13 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
                                axis=1)
             concat.columns = ['unique_id', 'ds', 'y']
 
-            # Series must be complete in the frequency
-            concat = ForecastingESRNNPrimitive._ffill_missing_dates_per_serie(concat, 'D')
+        # Series must be complete in the frequency
+        concat = ForecastingESRNNPrimitive._ffill_missing_dates_per_serie(concat, 'D')
 
-            # remove duplicates
-            concat = concat.drop_duplicates(['unique_id', 'ds'])
+        # remove duplicates
+        concat = concat.drop_duplicates(['unique_id', 'ds'])
 
-            self._data = concat
+        self._data = concat
 
     def fit(self, *, timeout: float = None, iterations: int = None) -> CallResult[None]:
         X_train = self._data[['unique_id', 'ds']]
@@ -418,8 +419,9 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
 
         # check whether no grouping keys are labeled
         if len(grouping_keys) == 0:
-            # TODO
-            pass
+            concat = pd.concat([inputs_copy[self._time_column]], axis=1)
+            concat.columns = ['ds']
+            concat['unique_id'] = 'series1'  # We have only one series
         else:
             # concatenate columns in `grouping_keys` to unique_id column
             concat = inputs_copy.loc[:, self.filter_idxs].apply(lambda x: ' '.join([str(v) for v in x]), axis=1)
