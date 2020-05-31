@@ -1,5 +1,6 @@
 import os
 import sys
+from typing import Any
 
 import pandas as pd
 import torch
@@ -24,6 +25,11 @@ class Hyperparams(hyperparams.Hyperparams):
 
 class ForecastingESRNNParams(params.Params):
     is_fitted: bool
+    time_column: Any
+    integer_time: Any
+    filter_idxs: Any
+    y_mean: Any
+    esrnn: Any
 
 
 class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
@@ -438,9 +444,19 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
 
     def set_params(self, *, params: Params) -> None:
         self._is_fitted = params['is_fitted']
+        self._time_column = params['time_column']
+        self._integer_time = params['integer_time']
+        self.filter_idxs = params['filter_idxs']
+        self._y_mean = params['y_mean']
+        self._esrnn = params['esrnn']
 
     def get_params(self) -> Params:
-        return ForecastingESRNNParams(is_fitted=self._is_fitted)
+        return ForecastingESRNNParams(is_fitted=self._is_fitted,
+                                      time_column=self._time_column,
+                                      integer_time=self._integer_time,
+                                      filter_idxs=self.filter_idxs,
+                                      y_mean=self._y_mean,
+                                      esrnn=self._esrnn)
 
     @staticmethod
     def _ffill_missing_dates_particular_serie(serie, min_date, max_date, freq):
