@@ -272,6 +272,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         self._integer_time = False
         self._year_column = None
         self._constant = 1  # the constant term to avoid nan
+        self._y_mean = 0  # the mean of the target variable in the training data
 
     def set_training_data(self, *, inputs: Inputs, outputs: Outputs) -> None:
         data = inputs.horizontal_concat(outputs)
@@ -383,6 +384,8 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         concat = concat.drop_duplicates(['unique_id', 'ds'])
 
         self._data = concat
+
+        self._y_mean = self._data['y'].mean()
 
     def fit(self, *, timeout: float = None, iterations: int = None) -> CallResult[None]:
         X_train = self._data[['unique_id', 'ds']]
@@ -514,5 +517,9 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         if series.isnull().any():
             # self.logger.warning("The prediction contains NAN. Fill with mean of training data. You may want to "
             #                     "increase output_size.")
-            return series.fillna(self._data['y'].mean())
+            tofill = series.mean()  # use the prediction mean if possible. Otherwise use the mean of the training data.
+            if pd.isna(tofill):
+                # self.logger.warn('The predictions are all NAN')
+                tofill = self._y_mean
+            return series.fillna(tofill)
         return series
