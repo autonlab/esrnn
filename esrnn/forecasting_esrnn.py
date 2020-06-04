@@ -119,12 +119,12 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
                     "predictions",
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
     )
-    seasonality = hyperparams.UniformInt(
-        default=1,
-        lower=1,
-        upper=13,
-        description="main frequency of the time series. Quarterly 4, Daily 7, Monthly 12",
-        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
+    seasonality = hyperparams.List(
+        elements=hyperparams.Hyperparameter[int](1),
+        semantic_types=['https://metadata.datadrivendiscovery.org/types/ControlParameter'],
+        default=[],
+        description="The main frequency of the time series. The value should between 1 and 13. Quarterly 4, Daily 7, "
+                    "Monthly 12",
     )
     frequency = hyperparams.Enumeration(
         default="D",
@@ -260,8 +260,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
             state_hsize=hyperparams['state_hsize'],
             dilations=hyperparams['dilations'],
             add_nl_layer=hyperparams['add_nl_layer'],
-            # seasonality=[hyperparams['seasonality']],
-            seasonality=[],  # TODO get from the hyperparams['seasonality']
+            seasonality=hyperparams['seasonality'],
             input_size=hyperparams['input_size'],
             output_size=hyperparams['output_size'],
             frequency=hyperparams['frequency'],
