@@ -126,13 +126,13 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
         description="The main frequency of the time series. The value should between 1 and 13. Quarterly 4, Daily 7, "
                     "Monthly 12",
     )
-    frequency = hyperparams.Enumeration(
+    frequency = hyperparams.Hyperparameter[str](
         default="D",
         semantic_types=[
             "https://metadata.datadrivendiscovery.org/types/ControlParameter"
         ],
-        values=["D", "M", "Q"],
-        description="A number of string aliases are given to useful common time series frequencies. See https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#timeseries-offset-aliases for a list of frequency aliases",
+        description="A number of string aliases are given to useful common time series frequencies. "
+                    "See https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#timeseries-offset-aliases for a list of frequency aliases",
     )
     input_size = hyperparams.UniformInt(
         default=4,
