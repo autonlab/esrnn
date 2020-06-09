@@ -377,8 +377,9 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
                                axis=1)
             concat.columns = ['unique_id', 'ds', 'y']
 
-        # Series must be complete in the frequency
-        concat = ForecastingESRNNPrimitive._ffill_missing_dates_per_serie(concat, 'D')
+        if self._integer_time:
+            # Series must be complete in the frequency
+            concat = ForecastingESRNNPrimitive._ffill_missing_dates_per_serie(concat, 'D')
 
         # remove duplicates
         concat = concat.drop_duplicates(['unique_id', 'ds'])
