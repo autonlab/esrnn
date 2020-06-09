@@ -265,6 +265,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
             output_size=hyperparams['output_size'],
             frequency=hyperparams['frequency'],
             max_periods=hyperparams['max_periods'],
+            random_seed=random_seed,
             device=self._device
         )
         self._data = None
