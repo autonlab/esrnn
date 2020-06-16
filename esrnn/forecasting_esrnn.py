@@ -197,6 +197,12 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
         description="The max number of periods (one period is one season as specified in the other hyperparameters)",
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
     )
+    device = hyperparams.Hyperparameter[str](
+        default="cpu",
+        semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"],
+        description="Specify the device, such as cpu, cuda, cuda:0. We recommend using CPU. It fallbacks to "
+                    "CPU if GPU is not available",
+    )
 
 
 class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, ForecastingESRNNParams,
@@ -237,7 +243,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
 
         self._is_fitted = False
 
-        self._device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self._device = 'cpu' if not torch.cuda.is_available() or hyperparams['device'] == 'cpu' else hyperparams['device']
         print("Use " + self._device)
         self.logger.info("Use " + self._device)
 
