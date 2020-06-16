@@ -232,7 +232,8 @@ class _RNN(nn.Module):
                    mc.state_hsize,
                    n_layers=len(mc.dilations[grp_num]),
                    dilations=mc.dilations[grp_num],
-                   cell_type=mc.cell_type)
+                   cell_type=mc.cell_type,
+                   device=mc.device)
       layers.append(layer)
 
     self.rnn_stack = nn.Sequential(*layers)

@@ -7,8 +7,6 @@ import torch
 import torch.nn as nn
 import torch.autograd as autograd
 
-use_cuda = torch.cuda.is_available()
-
 
 class LSTMCell(nn.Module): #jit.ScriptModule
     def __init__(self, input_size, hidden_size, dropout=0.):
@@ -142,10 +140,11 @@ class AttentiveLSTMLayer(nn.Module):
 
 class DRNN(nn.Module):
 
-    def __init__(self, n_input, n_hidden, n_layers, dilations, dropout=0, cell_type='GRU', batch_first=False):
+    def __init__(self, n_input, n_hidden, n_layers, dilations, dropout=0, cell_type='GRU', batch_first=False, device='cpu'):
 
         super(DRNN, self).__init__()
 
+        self.device = device
         self.dilations = dilations
         self.cell_type = cell_type
         self.batch_first = batch_first
@@ -244,8 +243,7 @@ class DRNN(nn.Module):
             zeros_ = torch.zeros(dilated_steps * rate - inputs.size(0),
                                  inputs.size(1),
                                  inputs.size(2))
-            if use_cuda:
-                zeros_ = zeros_.cuda()
+            zeros_ = zeros_.to(device=self.device)
 
             inputs = torch.cat((inputs, autograd.Variable(zeros_)))
         else:
@@ -259,12 +257,10 @@ class DRNN(nn.Module):
 
     def init_hidden(self, batch_size, hidden_dim):
         hidden = autograd.Variable(torch.zeros(batch_size, hidden_dim))
-        if use_cuda:
-            hidden = hidden.cuda()
+        hidden = hidden.to(device=self.device)
         if self.cell_type == "LSTM" or self.cell_type == 'ResLSTM' or self.cell_type == 'AttentiveLSTM':
             memory = autograd.Variable(torch.zeros(batch_size, hidden_dim))
-            if use_cuda:
-                memory = memory.cuda()
+            memory = memory.to(device=self.device)
             return hidden, memory
         else:
             return hidden
