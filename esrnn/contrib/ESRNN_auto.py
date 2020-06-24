@@ -246,7 +246,7 @@ class ESRNN(object):
 
     # Random Seeds (model initialization)
     torch.manual_seed(self.mc.random_seed)
-    np.random.seed(self.mc.random_seed)
+    # np.random.seed(self.mc.random_seed)   # Use a random generator instead e.g. random_generator = np.random.default_rng(seed=self.mc.random_seed)
 
     # Initialize model
     n_series = self.train_dataloader.n_series
