@@ -34,7 +34,7 @@ class ForecastingESRNNParams(params.Params):
 
 class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
     auto_tune = hyperparams.UniformBool(
-        default=True,
+        default=False,
         semantic_types=[
             "https://metadata.datadrivendiscovery.org/types/ControlParameter"
         ],
