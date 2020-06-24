@@ -38,7 +38,7 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
         semantic_types=[
             "https://metadata.datadrivendiscovery.org/types/ControlParameter"
         ],
-        description="Allow ESRNN to automatically tune the hyperparameters. You must still specify output_size.",
+        description="Allow ESRNN to automatically tune the hyperparameters. You must still specify the output_size.",
     )
     max_epochs = hyperparams.UniformInt(
         default=15,
