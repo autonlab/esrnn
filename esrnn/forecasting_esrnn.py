@@ -13,7 +13,7 @@ from d3m.primitive_interfaces.base import Inputs, CallResult, Outputs, Params
 from d3m.primitive_interfaces.supervised_learning import SupervisedLearnerPrimitiveBase
 
 import esrnn
-from esrnn.contrib.ESRNN import ESRNN
+from esrnn.contrib.ESRNN_auto import ESRNN
 
 Inputs = container.DataFrame
 Outputs = container.DataFrame
@@ -33,6 +33,13 @@ class ForecastingESRNNParams(params.Params):
 
 
 class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
+    auto_tune = hyperparams.UniformBool(
+        default=True,
+        semantic_types=[
+            "https://metadata.datadrivendiscovery.org/types/ControlParameter"
+        ],
+        description="Allow ESRNN to automatically tune the hyperparameters. You must still specify output_size.",
+    )
     max_epochs = hyperparams.UniformInt(
         default=15,
         lower=0,
@@ -145,7 +152,8 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
         default=60,
         lower=1,
         upper=10000,
-        description="output_size or forecast horizon of the recursive neura network, usually multiple of seasonality",
+        description="The forecast horizon of the recursive neural network, usually multiple of seasonality. The "
+                    "forecast horizon is the number of periods to forecast.",
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"]
     )
     exogenous_size = hyperparams.UniformInt(
@@ -247,33 +255,42 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         print("Use " + self._device)
         self.logger.info("Use " + self._device)
 
-        self._esrnn = ESRNN(
-            max_epochs=hyperparams['max_epochs'],
-            batch_size=hyperparams['batch_size'],
-            batch_size_test=hyperparams['batch_size_test'],
-            data_augmentation=hyperparams['data_augmentation'],
-            learning_rate=hyperparams['learning_rate'],
-            lr_scheduler_step_size=hyperparams['lr_scheduler_step_size'],
-            lr_decay=hyperparams['lr_decay'],
-            per_series_lr_multip=hyperparams['per_series_lr_multip'],
-            gradient_eps=hyperparams['gradient_eps'],
-            gradient_clipping_threshold=hyperparams['gradient_clipping_threshold'],
-            rnn_weight_decay=hyperparams['rnn_weight_decay'],
-            noise_std=hyperparams['noise_std'],
-            level_variability_penalty=hyperparams['level_variability_penalty'],
-            training_percentile=hyperparams['training_percentile'],
-            cell_type=hyperparams['cell_type'],
-            state_hsize=hyperparams['state_hsize'],
-            dilations=hyperparams['dilations'],
-            add_nl_layer=hyperparams['add_nl_layer'],
-            seasonality=hyperparams['seasonality'],
-            input_size=hyperparams['input_size'],
-            output_size=hyperparams['output_size'],
-            frequency=hyperparams['frequency'],
-            max_periods=hyperparams['max_periods'],
-            # random_seed=random_seed,  # FIXME pipelines are tuned on ESRNN's default seed
-            device=self._device
-        )
+        if hyperparams['auto_tune']:
+            self._esrnn = ESRNN(
+                output_size=hyperparams['output_size'],
+                device=self._device,
+                auto_tune=hyperparams['auto_tune']
+            )
+        else:
+            self._esrnn = ESRNN(
+                max_epochs=hyperparams['max_epochs'],
+                batch_size=hyperparams['batch_size'],
+                batch_size_test=hyperparams['batch_size_test'],
+                data_augmentation=hyperparams['data_augmentation'],
+                learning_rate=hyperparams['learning_rate'],
+                lr_scheduler_step_size=hyperparams['lr_scheduler_step_size'],
+                lr_decay=hyperparams['lr_decay'],
+                per_series_lr_multip=hyperparams['per_series_lr_multip'],
+                gradient_eps=hyperparams['gradient_eps'],
+                gradient_clipping_threshold=hyperparams['gradient_clipping_threshold'],
+                rnn_weight_decay=hyperparams['rnn_weight_decay'],
+                noise_std=hyperparams['noise_std'],
+                level_variability_penalty=hyperparams['level_variability_penalty'],
+                training_percentile=hyperparams['training_percentile'],
+                cell_type=hyperparams['cell_type'],
+                state_hsize=hyperparams['state_hsize'],
+                dilations=hyperparams['dilations'],
+                add_nl_layer=hyperparams['add_nl_layer'],
+                seasonality=hyperparams['seasonality'],
+                input_size=hyperparams['input_size'],
+                output_size=hyperparams['output_size'],
+                frequency=hyperparams['frequency'],
+                max_periods=hyperparams['max_periods'],
+                # random_seed=random_seed,  # FIXME pipelines are tuned on ESRNN's default seed
+                device=self._device,
+                auto_tune=hyperparams['auto_tune']
+            )
+
         self._data = None
         self._integer_time = False
         self._year_column = None
