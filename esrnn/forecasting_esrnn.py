@@ -404,7 +404,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
 
         if len(grouping_keys):
             # Infer frequency
-            freq = self.hyperparams['frequency']
+            freq = self._esrnn.mc.frequency
             if not freq:
                 freq = pd.infer_freq(concat.head()['ds'])
                 if freq is None and len(concat['unique_id']) > 0:
