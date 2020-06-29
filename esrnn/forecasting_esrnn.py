@@ -264,6 +264,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
                 frequency=hyperparams['frequency'] if hyperparams['frequency'] else None
             )
         else:
+            hyperparams['frequency'] = hyperparams['frequency'] if hyperparams['frequency'] else 'D'  # use D if not specified
             self._esrnn = ESRNN(
                 max_epochs=hyperparams['max_epochs'],
                 batch_size=hyperparams['batch_size'],
@@ -286,7 +287,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
                 seasonality=hyperparams['seasonality'],
                 input_size=hyperparams['input_size'],
                 output_size=hyperparams['output_size'],
-                frequency=hyperparams['frequency'] if hyperparams['frequency'] else 'D',
+                frequency=hyperparams['frequency'],
                 max_periods=hyperparams['max_periods'],
                 # random_seed=random_seed,  # FIXME pipelines are tuned on ESRNN's default seed
                 device=self._device,
