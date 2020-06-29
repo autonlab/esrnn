@@ -134,11 +134,12 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
                     "Monthly 12",
     )
     frequency = hyperparams.Hyperparameter[str](
-        default="D",
+        default="",
         semantic_types=[
             "https://metadata.datadrivendiscovery.org/types/ControlParameter"
         ],
-        description="A number of string aliases are given to useful common time series frequencies. "
+        description="A number of string aliases are given to useful common time series frequencies. If empty, "
+                    "we will try to infer the frequency from the data. If it fails, we use 'D'. "
                     "See https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#timeseries-offset-aliases for a list of frequency aliases",
     )
     input_size = hyperparams.UniformInt(
@@ -259,7 +260,8 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
             self._esrnn = ESRNN(
                 output_size=hyperparams['output_size'],
                 device=self._device,
-                auto_tune=hyperparams['auto_tune']
+                auto_tune=hyperparams['auto_tune'],
+                frequency=hyperparams['frequency'] if hyperparams['frequency'] else None
             )
         else:
             self._esrnn = ESRNN(
@@ -401,8 +403,20 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
             concat.columns = ['unique_id', 'ds', 'y']
 
         if len(grouping_keys):
+            # Infer frequency
+            freq = self.hyperparams['frequency']
+            if not freq:
+                freq = pd.infer_freq(concat.head()['ds'])
+                if freq is None and len(concat['unique_id']) > 0:
+                    freq = pd.infer_freq(concat[concat['unique_id'] == concat['unique_id'][0]]['ds'])
+                if freq is None:
+                    freq = 'D'
+                    self.logger.warn('Cannot infer frequency. Use "D".')
+                else:
+                    self.logger.info('Inferred frequency: {}'.format(freq))
+
             # Series must be complete in the frequency
-            concat = ForecastingESRNNPrimitive._ffill_missing_dates_per_serie(concat, self.hyperparams['frequency'])
+            concat = ForecastingESRNNPrimitive._ffill_missing_dates_per_serie(concat, freq)
 
         # remove duplicates
         concat = concat.drop_duplicates(['unique_id', 'ds'])
