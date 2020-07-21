@@ -425,6 +425,9 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
 
         self._y_mean = self._data['y'].mean()
 
+        # if min of y is negative, then add the absolute value of it to the constant
+        self._constant += - self._data['y'].min() if self._data['y'].min() < 0 else 0
+
     def fit(self, *, timeout: float = None, iterations: int = None) -> CallResult[None]:
         X_train = self._data[['unique_id', 'ds']]
         X_train['x'] = '1'
