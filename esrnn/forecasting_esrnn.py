@@ -296,7 +296,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         self._data = None
         self._integer_time = False
         self._year_column = None
-        self._constant = 1  # the constant term to avoid nan
+        self._constant = 0  # the constant term to avoid nan
         self._y_mean = 0  # the mean of the target variable in the training data
 
     def set_training_data(self, *, inputs: Inputs, outputs: Outputs) -> None:
@@ -426,7 +426,8 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         self._y_mean = self._data['y'].mean()
 
         # if min of y is negative, then add the absolute value of it to the constant
-        self._constant += - self._data['y'].min() if self._data['y'].min() < 0 else 0
+        if self._data['y'].min() <= 0:
+            self._constant = 1 - self._data['y'].min()
 
     def fit(self, *, timeout: float = None, iterations: int = None) -> CallResult[None]:
         X_train = self._data[['unique_id', 'ds']]
