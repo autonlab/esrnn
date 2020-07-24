@@ -557,8 +557,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
 
     def _fillna(self, series):
         if series.isnull().any():
-            # self.logger.warning("The prediction contains NAN. Fill with mean of training data. You may want to "
-            #                     "increase output_size.")
+            # self.logger.warning("The prediction contains NAN. Fill with mean of prediction.")
             tofill = series.mean()  # use the prediction mean if possible. Otherwise use the mean of the training data.
             if pd.isna(tofill):
                 # self.logger.warn('The predictions are all NAN')
