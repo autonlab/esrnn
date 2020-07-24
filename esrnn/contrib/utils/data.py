@@ -89,7 +89,7 @@ class Iterator(object):
   def shuffle_dataset(self, random_seed=1):
     """Return the examples in the dataset in order, or shuffled."""
     # Random Seed
-    random_generator = np.random.default_rng(random_seed)
+    random_generator = np.random.RandomState(random_seed)
     self.random_seed = random_seed
     shuffle = random_generator.choice(self.n_series, self.n_series, replace=False)
     self.X = self.X[shuffle]
