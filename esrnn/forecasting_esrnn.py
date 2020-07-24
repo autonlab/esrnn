@@ -190,7 +190,7 @@ class ForecastingESRNNHyperparams(hyperparams.Hyperparams):
                     'ResNet fashion'
     )
     add_nl_layer = hyperparams.UniformBool(
-        default=False,
+        default=True,
         semantic_types=["https://metadata.datadrivendiscovery.org/types/ControlParameter"],
         description="whether to insert a tanh() layer between the RNN stack and the linear adaptor (output) layers",
     )
