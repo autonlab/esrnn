@@ -434,7 +434,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         X_train['x'] = '1'
         y_train = self._data[['unique_id', 'ds', 'y']]
         y_train['y'] += self._constant
-        self._esrnn.fit(X_train, y_train)
+        self._esrnn.fit(X_train, y_train, verbose=False)
         self._is_fitted = True
 
         return base.CallResult(None)
