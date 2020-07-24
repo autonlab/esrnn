@@ -323,7 +323,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         ):
             self._integer_time = True
             data[self._time_column] = pd.to_datetime(
-                data[self._time_column] - 1, unit="D"
+                data[self._time_column], unit="D"
             )
         else:
             data[self._time_column] = pd.to_datetime(
@@ -448,7 +448,7 @@ class ForecastingESRNNPrimitive(SupervisedLearnerPrimitiveBase[Inputs, Outputs, 
         # if datetime columns are integers, parse as # of days
         if self._integer_time:
             inputs_copy[self._time_column] = pd.to_datetime(
-                inputs_copy[self._time_column] - 1, unit="D"
+                inputs_copy[self._time_column], unit="D"
             )
         else:
             inputs_copy[self._time_column] = pd.to_datetime(
