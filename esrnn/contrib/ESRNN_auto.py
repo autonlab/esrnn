@@ -131,16 +131,16 @@ class ESRNN(object):
 
   def define_grid(self):
     mc_list = []
-    grid_parameters = [{'max_epochs': 10, 'batch_size': 16, 'learning_rate': 1e-4, 'training_percentile': 50,
-                        'dilations': [[1, 3, 6, 12]]}, # malnutrition monthly
+    grid_parameters = [{'max_epochs': 5, 'batch_size': 16, 'learning_rate': 1e-4, 'training_percentile': 60,
+                        'dilations': [[1, 2, 4, 8]]}, # malnutrition weekly
                        {'max_epochs': 5, 'batch_size': 4, 'learning_rate': 3e-4, 'training_percentile': 75,
                         'dilations': [[1, 7]]}, # stock data
                        {'max_epochs': 5, 'batch_size': 16, 'learning_rate': 1e-3, 'training_percentile': 55,
-                        'dilations': [[1, 2, 4]]}, # population
-                       {'max_epochs': 5, 'batch_size': 16, 'learning_rate': 1e-4, 'training_percentile': 60,
-                        'dilations': [[1, 2, 4, 8]]}, # malnutrition weekly
+                        'dilations': [[1, 2, 4]]}, # population and population simpler
                        {'max_epochs': 10, 'batch_size': 16, 'learning_rate': 1e-2, 'training_percentile': 60,
-                        'dilations': [[1, 12]]} # sunspot year
+                        'dilations': [[1, 12]]}, # sunspot year
+                       {'max_epochs': 10, 'batch_size': 16, 'learning_rate': 1e-4, 'training_percentile': 50,
+                        'dilations': [[1, 3, 6, 12]]} # malnutrition monthly
                        ]
     
     for grid in grid_parameters:
@@ -228,10 +228,45 @@ class ESRNN(object):
     X_df = X_df[X_df['unique_id'].isin(ids)].reset_index(drop=True)
     y_df = y_df[y_df['unique_id'].isin(ids)].reset_index(drop=True)
     return X_df, y_df
-  
-  def fit_single_model(self, X_df, y_df, shuffle=True, verbose=False):
-    X_df, y_df = self.get_trainable_df(X_df, y_df)
-    X, y = self.long_to_wide(X_df, y_df)
+
+  def fill_series(self, X_df, y_df):
+    unique_counts = X_df.groupby('unique_id').count().reset_index()[['unique_id','ds']]
+    ids_to_fill = unique_counts[unique_counts['ds'] < self.mc.min_series_length]['unique_id'].unique()
+    X_add_panel = pd.DataFrame(columns=['unique_id', 'ds', 'x'])
+    y_add_panel = pd.DataFrame(columns=['unique_id', 'ds', 'y'])
+    for id_to_fill in ids_to_fill:
+        # Get values
+        X_i = X_df[X_df['unique_id']==id_to_fill]
+        periods_to_add = self.mc.min_series_length - len(X_i)
+        first_value = y_df[y_df['unique_id']==id_to_fill]['y'].values[0]
+        first_date = X_i['ds'].values[0]
+        new_first_date = first_date - pd.to_timedelta(periods_to_add, unit=self.mc.frequency)
+
+        # New X obs for id
+        X_add_i = pd.DataFrame(periods_to_add*[id_to_fill], columns=["unique_id"])
+        X_add_i['ds'] = pd.date_range(start=new_first_date, periods=periods_to_add, freq=self.mc.frequency)
+        X_add_i['x'] = X_i['x'].values[0]
+        # New y obs for id
+        y_add_i = X_add_i.copy()
+        y_add_i['y'] = first_value
+
+        X_add_panel = X_add_panel.append(X_add_i, sort=False).reset_index(drop=True)
+        y_add_panel = y_add_panel.append(y_add_i, sort=False).reset_index(drop=True)
+
+    X_df = X_df.append(X_add_panel,sort=False).sort_values(['unique_id','ds']).reset_index(drop=True)
+    y_df = y_df.append(y_add_panel,sort=False).sort_values(['unique_id','ds']).reset_index(drop=True)
+
+    return X_df, y_df
+
+  def fit_single_model(self, X_df, y_df, shuffle=True, verbose=True):
+
+    X_df_trainable, y_df_trainable = self.get_trainable_df(X_df, y_df)
+
+    if len(X_df_trainable) == 0:
+      print('No series are long enough, filling series')
+      X_df_trainable, y_df_trainable = self.fill_series(X_df, y_df)
+
+    X, y = self.long_to_wide(X_df_trainable, y_df_trainable)
 
     assert len(X)==len(y)
     assert X.shape[1]>=3
@@ -303,7 +338,7 @@ class ESRNN(object):
     return mc
     
 
-  def fit(self, X_df, y_df, shuffle=True, verbose=False):
+  def fit(self, X_df, y_df, shuffle=True, verbose=True):
     # Transform long dfs to wide numpy
     assert type(X_df) == pd.core.frame.DataFrame
     assert type(y_df) == pd.core.frame.DataFrame
@@ -342,15 +377,15 @@ class ESRNN(object):
         unique_id: Corresponding list of unique_id
     """
 
+    #print(9*'='+' Predicting ESRNN ' + 9*'=' + '\n')
+    assert type(X_df) == pd.core.frame.DataFrame
+    assert 'unique_id' in X_df
+
     if self.mc.data_augmentation:
       X_df['unique_id_real'] = X_df['unique_id']
       X_df['unique_id'] = X_df['unique_id'] + "_" + X_df['ds'].dt.year.astype(str)
       unique_id_mapping = dict(zip(X_df.unique_id, X_df.unique_id_real))
       X_df = X_df.drop(columns=['unique_id_real'])
-
-    #print(9*'='+' Predicting ESRNN ' + 9*'=' + '\n')
-    assert type(X_df) == pd.core.frame.DataFrame
-    assert 'unique_id' in X_df
 
     # Obtain unique_ids to predict
     predict_unique_idxs = X_df['unique_id'].unique()
