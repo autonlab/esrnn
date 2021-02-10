@@ -1,6 +1,8 @@
 import os
 import time
 import copy
+import datetime
+import dateutil.relativedelta
 
 import numpy as np
 import pandas as pd
@@ -240,7 +242,10 @@ class ESRNN(object):
         periods_to_add = self.mc.min_series_length - len(X_i)
         first_value = y_df[y_df['unique_id']==id_to_fill]['y'].values[0]
         first_date = X_i['ds'].values[0]
-        new_first_date = first_date - pd.to_timedelta(periods_to_add, unit=self.mc.frequency)
+        if self.mc.frequency == 'M':
+          new_first_date = pd.Timestamp(datetime.datetime.strptime(str(first_date)[:10], "%Y-%m-%d") - dateutil.relativedelta.relativedelta(months=periods_to_add))
+        else:
+          new_first_date = first_date - pd.to_timedelta(periods_to_add, unit=self.mc.frequency)
 
         # New X obs for id
         X_add_i = pd.DataFrame(periods_to_add*[id_to_fill], columns=["unique_id"])
